@@ -50,10 +50,26 @@ function avatar(user, size = '') {
     if (!avatarUrls.has(user.avatar)) avatarUrls.set(user.avatar, imageUrl(user.avatar));
     avatarUrls
       .get(user.avatar)
-      .then((url) => el.replaceChildren(h('img', { src: url, alt: '' })))
+      .then((url) => {
+        const img = h('img', { src: url, alt: '' });
+        img.onload = () => hasAlpha(url, img) && el.classList.add('clear');
+        el.replaceChildren(img);
+      })
       .catch(() => avatarUrls.delete(user.avatar));
   }
   return el;
+}
+
+// ¿La foto tiene partes transparentes (PNG, WebP o GIF recortado)? Entonces no se pinta nada detrás:
+// en el perfil se ve la portada. Se mira una versión de 24x24 (en un GIF, el primer cuadro).
+const alphaCache = new Map();
+function hasAlpha(url, img) {
+  if (!alphaCache.has(url)) {
+    const ctx = h('canvas', { width: 24, height: 24 }).getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, 24, 24);
+    alphaCache.set(url, ctx.getImageData(0, 0, 24, 24).data.some((v, i) => i % 4 === 3 && v < 250));
+  }
+  return alphaCache.get(url);
 }
 
 function timeAgo(date) {
@@ -155,13 +171,105 @@ const safe = (fn) => async (...args) => {
 // Marca de la app: dos círculos sobre el color de acento de la apariencia elegida.
 const brandMark = () => h('span', { className: 'brand-mark', ariaHidden: 'true' });
 
+async function logout() {
+  await disablePush().catch(() => {}); // que este dispositivo no siga recibiendo avisos de esta cuenta
+  await api('/logout', { method: 'POST' }).catch(() => {});
+  closeLive();
+  setToken(null);
+  me = null;
+  go('/login');
+}
+
+// Pinta una apariencia en toda la página (también la barra del teléfono).
+function paintLook(look) {
+  document.documentElement.dataset.look = look;
+  document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+}
+
+// --- Panel lateral plegable: accesos, los amigos (con quién está conectado) y opciones rápidas ---
+// En pantallas anchas queda fijo a la izquierda y se recuerda si lo cerraste; en el teléfono se abre encima.
+const wideSide = matchMedia('(min-width: 1100px)');
+const restoreSide = () => document.documentElement.classList.toggle('side-open', wideSide.matches && localStorage.getItem('side') !== '0');
+wideSide.addEventListener('change', restoreSide);
+function toggleSide(open = !document.documentElement.classList.contains('side-open')) {
+  document.documentElement.classList.toggle('side-open', open);
+  if (wideSide.matches) localStorage.setItem('side', open ? '1' : '0');
+}
+document.addEventListener('keydown', (e) => e.key === 'Escape' && !wideSide.matches && document.documentElement.classList.remove('side-open'));
+
+let sidePeople = null; // la lista que está en pantalla; la presencia en vivo la vuelve a pintar
+async function drawPeople() {
+  const list = sidePeople;
+  if (!list) return;
+  const online = new Set(livePresence.map((u) => u.id));
+  const users = (await loadUsers()).filter((u) => u.id !== me?.id).sort((a, b) => online.has(b.id) - online.has(a.id));
+  if (list !== sidePeople) return;
+  const path = decodeURIComponent(location.pathname);
+  list.replaceChildren(
+    ...users.map((u) =>
+      link(
+        `/u/${u.username}`,
+        { className: `side-person${path === `/u/${u.username}` ? ' active' : ''}${online.has(u.id) ? ' online' : ''}`, title: online.has(u.id) ? 'Conectado ahora' : '' },
+        h('span', { className: 'side-avatar' }, avatar(u, 'sm')),
+        h('span', { className: 'side-who' }, h('strong', {}, u.display_name), h('small', {}, `@${u.username}`)),
+      ),
+    ),
+  );
+  if (!users.length) list.append(h('p', { className: 'muted side-empty' }, 'Todavía no hay nadie más.'));
+  const n = users.filter((u) => online.has(u.id)).length;
+  list.previousSibling.lastChild.textContent = n ? `${n} conectado${n > 1 ? 's' : ''}` : '';
+}
+
+function sidePanel(path) {
+  const item = (href, iconName, text) => link(href, { className: `side-link${path === href ? ' active' : ''}` }, icon(iconName), h('span', {}, text));
+  const mode = h('button', { type: 'button', className: 'side-link' });
+  const drawMode = () => {
+    const dark = document.documentElement.classList.contains('dark');
+    mode.replaceChildren(icon(dark ? 'sun' : 'moon'), h('span', {}, dark ? 'Modo claro' : 'Modo oscuro'));
+  };
+  mode.onclick = () => {
+    const look = document.documentElement.dataset.look; // en el perfil de otro, seguir con su apariencia
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+    window.applyTheme();
+    paintLook(look);
+    drawMode();
+  };
+  drawMode();
+  sidePeople = h('div', { className: 'side-people' });
+  drawPeople();
+  const close = btn('x', 'Cerrar menú', () => toggleSide(false), 'side-close', { iconOnly: true });
+  return [
+    h('div', { className: 'side-backdrop', onclick: () => toggleSide(false) }),
+    h(
+      'aside',
+      { className: 'side', ariaLabel: 'Menú' },
+      h('div', { className: 'side-head' }, link('/', { className: 'brand' }, brandMark(), 'Amigos'), close),
+      link(`/u/${me.username}`, { className: `side-me${path === `/u/${me.username}` ? ' active' : ''}` }, avatar(me), h('span', { className: 'side-who' }, h('strong', {}, me.display_name), h('small', {}, 'Ver mi perfil'))),
+      h(
+        'nav',
+        { className: 'side-nav' },
+        item('/', 'home', 'Inicio'),
+        item('/chat', 'message', 'Chat del grupo'),
+        item('/buscar', 'search', 'Buscar'),
+        item('/perfil', 'edit', 'Editar perfil y apariencia'),
+        me.role === 'admin' && item('/admin', 'shield', 'Administrar cuentas'),
+      ),
+      h('div', { className: 'side-title' }, h('span', {}, 'Amigos'), h('span', { className: 'side-count' })),
+      sidePeople,
+      h('div', { className: 'side-foot' }, mode, h('button', { type: 'button', className: 'side-link danger', onclick: logout }, icon('logout'), h('span', {}, 'Cerrar sesión'))),
+    ),
+  ];
+}
+
 function shell(...children) {
   const path = location.pathname;
+  restoreSide();
   return [
+    ...sidePanel(path),
     h(
       'header',
       { className: 'top' },
-      link('/', { className: 'brand' }, brandMark(), 'Amigos'),
+      h('div', { className: 'top-left' }, btn('menu', 'Menú', () => toggleSide(), 'navlink side-toggle', { iconOnly: true }), link('/', { className: 'brand' }, brandMark(), 'Amigos')),
       h(
         'nav',
         {},
@@ -1344,14 +1452,6 @@ function profileScreen() {
   const pw = h('input', { type: 'password', required: true, minLength: 10, maxLength: 200, autocomplete: 'new-password' });
   const pw2 = h('input', { type: 'password', required: true, minLength: 10, maxLength: 200, autocomplete: 'new-password' });
   const msg = errorBox();
-  const logout = async () => {
-    await disablePush().catch(() => {}); // que este dispositivo no siga recibiendo avisos de esta cuenta
-    await api('/logout', { method: 'POST' }).catch(() => {});
-    closeLive();
-    setToken(null);
-    me = null;
-    go('/login');
-  };
   // Foto de perfil: se sube apenas se elige (el servidor la recorta cuadrada).
   const photo = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
   photo.onchange = safe(async () => {
@@ -1593,7 +1693,7 @@ function connectLive() {
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'ready') (liveReady = true), (liveRetry = 0);
-    else if (msg.type === 'presence') livePresence = msg.users;
+    else if (msg.type === 'presence') (livePresence = msg.users), drawPeople();
     else if (msg.type === 'notify') liveToast(msg);
     else if (msg.type === 'error') toast(msg.error, 'error');
     // Mensaje del chat: aviso solo si no lo estás mirando y no lo mandaste vos.
@@ -1963,10 +2063,7 @@ async function render() {
     // Si mientras cargaba se navegó a otra pantalla, no pisarla.
     if (location.pathname !== path) return;
     // En el perfil de alguien, toda la página (encabezado, scroll y barra del teléfono) usa su apariencia.
-    if (nodes.look) {
-      document.documentElement.dataset.look = nodes.look;
-      document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
-    }
+    if (nodes.look) paintLook(nodes.look);
     return root.replaceChildren(...nodes);
   }
   if (path === '/chat') return root.replaceChildren(...chatScreen());
