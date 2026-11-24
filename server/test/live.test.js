@@ -44,3 +44,19 @@ test('avisos en vivo: post nuevo y mención, sin duplicar ni avisarte lo tuyo', 
   assert.deepEqual(notifies(inC, beto).map((m) => m.kind), ['mention'], 'caro: solo la mención, no además "post nuevo"');
   assert.deepEqual(notifies(inB, beto), [], 'beto no recibe aviso de lo suyo');
 });
+
+test('avisos en vivo: comentario en tu post (rojo) y mención en un comentario', async () => {
+  const [ana, beto, caro] = [await makeUser(), await makeUser(), await makeUser()];
+  const [inA, inC] = [await connect(ana), await connect(caro)];
+  const form = new FormData();
+  form.append('body', 'post de ana');
+  const { id } = await (await fetch(`${base}/posts`, { method: 'POST', headers: { authorization: `Bearer ${ana.token}` }, body: form })).json();
+  await fetch(`${base}/posts/${id}/comments`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${beto.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ body: `jaja @${caro.username} mirá` }),
+  });
+  await settle();
+  assert.deepEqual(notifies(inA, beto).map((m) => m.kind), ['comment'], 'ana: comentario en su post');
+  assert.deepEqual(notifies(inC, beto).map((m) => m.kind), ['mention'], 'caro: la mención');
+});

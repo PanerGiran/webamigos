@@ -87,11 +87,11 @@ router.post('/posts/:id/comments', commentLimit, uploadAttachment, async (req, r
   const pushBody = body ? snippet(body) : `📎 Mandó ${attachmentLabel[attachment.kind]}`;
   const toOwner = post.user_id !== req.user.id;
   if (toOwner) {
-    notifyLater('comments', { title: `${req.user.display_name} comentó tu post`, body: pushBody, url, tag: `comments-${post.id}` }, { to: [post.user_id] });
+    notifyLater('comments', { title: `${req.user.display_name} comentó tu post`, body: pushBody, url, tag: `comments-${post.id}` }, { to: [post.user_id], from: req.user });
   }
   // Al dueño del post ya le llegó "comentó tu post": no se le manda también "te mencionó".
   const mentioned = await mentionedIds(body, [req.user.id, ...(toOwner ? [post.user_id] : [])]);
-  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: pushBody, url, tag: `comments-${post.id}` }, { to: mentioned });
+  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: pushBody, url, tag: `comments-${post.id}` }, { to: mentioned, from: req.user });
   res.status(201).json({ comment: commentWithMedia(comment) });
 });
 
