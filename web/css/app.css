@@ -571,3 +571,12 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 
 .chat-poll-form input { margin-bottom: 8px; }
 .chat-form textarea { min-width: 0; flex: 1; }
 @media (max-width: 480px) { .chat-tools button { padding: 6px; } .chat-form { gap: 6px; } }
+/* En pantallas anchas, "← Feed" sale del encabezado del chat y queda al costado izquierdo, fuera del cuadro. */
+@media (min-width: 900px) {
+  .chat-main { position: relative; }
+  .chat-back {
+    position: absolute; right: 100%; top: 16px; margin-right: 12px; white-space: nowrap;
+    padding: 8px 14px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text);
+  }
+  .chat-back:hover { border-color: var(--accent); color: var(--accent); }
+}
