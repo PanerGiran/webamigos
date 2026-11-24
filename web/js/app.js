@@ -1992,7 +1992,7 @@ function chatScreen() {
     replyBar,
     h('form', { className: 'chat-form', onsubmit: (e) => (e.preventDefault(), send()) }, chatTools, input, sendBtn),
   );
-  nodes[1].className = 'chat-main';
+  nodes.at(-1).className = 'chat-main'; // el <main> es siempre el último (antes van el panel y el encabezado)
   return nodes;
 }
 
