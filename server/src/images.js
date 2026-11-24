@@ -20,16 +20,18 @@ export const uploadLimit = rateLimit({ windowMs: 60 * 60_000, limit: 30, keyGene
 const POST_SIZE = { width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true };
 // Cuadrada, recortada hacia la zona con más detalle (en general, la cara).
 const AVATAR_SIZE = { width: 256, height: 256, fit: 'cover', position: sharp.strategy.attention };
+// Portada del perfil: apaisada, recortada igual hacia lo más llamativo.
+const COVER_SIZE = { width: 1500, height: 500, fit: 'cover', position: sharp.strategy.attention };
 
 // Revisa el formato real (no el que dice el cliente), endereza según EXIF y guarda WebP sin metadatos (se va el GPS).
 // Devuelve { id, filename } o null si no es una imagen válida.
-export async function saveImage(buffer, userId, { avatar = false } = {}) {
-  const input = sharp(buffer, { animated: !avatar, limitInputPixels: 40_000_000 });
+export async function saveImage(buffer, userId, { avatar = false, cover = false } = {}) {
+  const input = sharp(buffer, { animated: !avatar && !cover, limitInputPixels: 40_000_000 });
   const meta = await input.metadata().catch(() => null);
   if (!meta || !['jpeg', 'png', 'webp', 'gif'].includes(meta.format)) return null;
   const { data, info } = await input
     .rotate()
-    .resize(avatar ? AVATAR_SIZE : POST_SIZE)
+    .resize(avatar ? AVATAR_SIZE : cover ? COVER_SIZE : POST_SIZE)
     .webp({ quality: 82 })
     .toBuffer({ resolveWithObject: true });
   const filename = crypto.randomUUID();

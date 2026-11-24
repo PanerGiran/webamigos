@@ -53,3 +53,42 @@ test('perfil: inexistente, eliminado o sin sesión', async () => {
   const { user } = await (await call(u, `/users/${nuevo.username}`)).json();
   assert.deepEqual([user.profile_count, user.feed_count], [0, 0], 'sin posts cuenta 0');
 });
+
+test('perfil: nombre, bio y portada', async () => {
+  const [u, otro] = [await makeUser(), await makeUser()];
+  const patch = (json) => call(u, '/me/profile', { method: 'PATCH', json });
+  const perfil = async () => (await (await call(otro, `/users/${u.username}`)).json()).user;
+
+  let res = await patch({ display_name: '  Nombre Nuevo ', bio: ' Me gustan los memes.\nY el asado. ' });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { display_name: 'Nombre Nuevo', bio: 'Me gustan los memes.\nY el asado.' });
+  let p = await perfil();
+  assert.equal(p.bio, 'Me gustan los memes.\nY el asado.');
+  assert.equal(p.display_name, 'Nombre Nuevo');
+  assert.equal((await patch({ bio: 'x'.repeat(301) })).status, 400);
+  assert.equal((await patch({ display_name: '   ' })).status, 400);
+  assert.equal((await patch({})).status, 400);
+  await patch({ bio: '' });
+  assert.equal((await perfil()).bio, null, 'bio vacía = sin bio');
+
+  // Portada: apaisada 1500x500, se reemplaza y se quita sin dejar archivos viejos.
+  const sharp = (await import('sharp')).default;
+  const put = async (color) => {
+    const form = new FormData();
+    form.append('image', new Blob([await sharp({ create: { width: 900, height: 900, channels: 3, background: color } }).jpeg().toBuffer()], { type: 'image/jpeg' }), 'p.jpg');
+    return fetch(`${base}/me/cover`, { method: 'PUT', headers: { authorization: `Bearer ${u.token}` }, body: form });
+  };
+  res = await put('#36c');
+  assert.equal(res.status, 200);
+  const { cover } = await res.json();
+  assert.equal((await perfil()).cover, cover);
+  const img = await fetch(`${base}/media/${cover}`, { headers: { authorization: `Bearer ${otro.token}` } });
+  const meta = await sharp(Buffer.from(await img.arrayBuffer())).metadata();
+  assert.deepEqual([meta.width, meta.height], [1500, 500]);
+
+  const nueva = (await (await put('#c63')).json()).cover;
+  assert.equal((await fetch(`${base}/media/${cover}`, { headers: { authorization: `Bearer ${u.token}` } })).status, 404, 'la vieja se borró');
+  assert.equal((await call(u, '/me/cover', { method: 'DELETE' })).status, 204);
+  assert.equal((await perfil()).cover, null);
+  assert.equal((await fetch(`${base}/media/${nueva}`, { headers: { authorization: `Bearer ${u.token}` } })).status, 404);
+});

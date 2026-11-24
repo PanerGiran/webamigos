@@ -15,7 +15,9 @@ CREATE TABLE users (
   avatar_full CHAR(36) NULL,                  -- la misma foto completa, sin recorte
   notify_posts TINYINT(1) NOT NULL DEFAULT 1,  -- preferencias de notificaciones push
   notify_comments TINYINT(1) NOT NULL DEFAULT 1,
-  notify_chat TINYINT(1) NOT NULL DEFAULT 1
+  notify_chat TINYINT(1) NOT NULL DEFAULT 1,
+  bio VARCHAR(300) NULL,                      -- texto corto del perfil
+  cover CHAR(36) NULL                         -- foto de portada (archivo en uploads)
 );
 
 CREATE TABLE invites (

@@ -659,6 +659,80 @@ function pushNudge() {
   return card;
 }
 
+// Franja de portada: la foto si hay, si no el degradado de la marca.
+function coverBox(filename, extra = '') {
+  const box = h('div', { className: `cover ${extra}` });
+  if (filename) imageUrl(filename).then((url) => box.replaceChildren(h('img', { src: url, alt: '' }))).catch(() => {});
+  return box;
+}
+
+// Editar perfil: nombre, bio y portada.
+function profileInfoCard() {
+  const name = h('input', { required: true, maxLength: 64, value: me.display_name });
+  const bio = h('textarea', { maxLength: 300, rows: 3, placeholder: 'Contá algo de vos (opcional)' });
+  const count = h('span', { className: 'muted small counter' }, '0/300');
+  bio.oninput = () => (count.textContent = `${bio.value.length}/300`);
+  const msg = errorBox();
+  let cover = null;
+  const coverSlot = h('div', {});
+  const coverFile = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
+  function drawCover() {
+    coverSlot.replaceChildren(
+      coverBox(cover, 'small'),
+      h('div', { className: 'actions', style: 'border:0;padding:0;margin-top:8px' },
+        btn('image', cover ? 'Cambiar portada' : 'Poner portada', () => coverFile.click(), 'soft sm'),
+        cover && btn('trash', 'Quitar portada', safe(async () => {
+          if (!confirm('¿Quitar la foto de portada?')) return;
+          await api('/me/cover', { method: 'DELETE' });
+          cover = null;
+          drawCover();
+          toast('Portada quitada');
+        }), 'soft danger sm'),
+      ),
+    );
+  }
+  coverFile.onchange = safe(async () => {
+    const f = coverFile.files[0];
+    coverFile.value = '';
+    if (!f) return;
+    if (f.size > MAX_IMAGE) throw new Error('La imagen pasa los 5 MB.');
+    const form = new FormData();
+    form.append('image', f);
+    toast('Subiendo portada…');
+    cover = (await api('/me/cover', { method: 'PUT', form })).cover;
+    drawCover();
+    toast('Portada actualizada');
+  });
+  drawCover();
+  api(`/users/${me.username}`)
+    .then(({ user }) => {
+      bio.value = user.bio ?? '';
+      bio.oninput();
+      cover = user.cover;
+      drawCover();
+    })
+    .catch((err) => (msg.textContent = err.message));
+
+  return h(
+    'form',
+    {
+      className: 'card fade-in',
+      onsubmit: onSubmit(msg, async () => {
+        const r = await api('/me/profile', { method: 'PATCH', json: { display_name: name.value, bio: bio.value } });
+        me.display_name = r.display_name;
+        toast('Perfil guardado');
+        render();
+      }),
+    },
+    h('h2', {}, 'Tu perfil'),
+    h('div', { className: 'field' }, h('span', { className: 'field-label' }, 'Portada'), coverSlot, coverFile),
+    label('Nombre visible', name),
+    h('label', {}, h('span', {}, 'Bio'), bio, count),
+    msg,
+    h('button', {}, 'Guardar perfil'),
+  );
+}
+
 // --- Perfil público ---
 
 const profileLink = (user, props, ...children) => link(`/u/${user.username}`, { ...props, title: `Perfil de ${user.display_name}` }, ...children);
@@ -681,14 +755,21 @@ async function userScreen(username) {
       }, big)
     : big;
 
+  const cover = coverBox(user.cover);
   const head = h(
     'section',
     { className: 'card profile-card fade-in' },
-    photo,
-    h('h1', {}, user.display_name),
-    h('p', { className: 'muted' }, `@${user.username} `, user.role === 'admin' && h('span', { className: 'badge accent' }, icon('shield'), 'admin')),
-    h('p', { className: 'muted small' }, `En el grupo desde ${monthFmt.format(new Date(user.created_at))}`),
-    isMe && link('/perfil', { className: 'btn-link' }, icon('edit'), 'Editar perfil'),
+    cover,
+    h(
+      'div',
+      { className: 'profile-body' },
+      photo,
+      h('h1', {}, user.display_name),
+      h('p', { className: 'muted' }, `@${user.username} `, user.role === 'admin' && h('span', { className: 'badge accent' }, icon('shield'), 'admin')),
+      user.bio && h('p', { className: 'bio' }, ...richText(user.bio)),
+      h('p', { className: 'muted small' }, `En el grupo desde ${monthFmt.format(new Date(user.created_at))}`),
+      isMe && link('/perfil', { className: 'btn-link' }, icon('edit'), 'Editar perfil'),
+    ),
   );
 
   const tabBar = h('div', { className: 'tabs', role: 'tablist' });
@@ -771,6 +852,7 @@ function profileScreen() {
       ),
       h('div', { className: 'actions' }, btn('camera', me.avatar ? 'Cambiar foto' : 'Poner foto', () => photo.click(), 'soft sm'), me.avatar && btn('trash', 'Quitar foto', removePhoto, 'soft danger sm')),
     ),
+    profileInfoCard(),
     h(
       'form',
       {

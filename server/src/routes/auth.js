@@ -105,3 +105,37 @@ router.delete('/me/avatar', requireAuth, async (req, res) => {
   await pool.execute('UPDATE users SET avatar = NULL, avatar_full = NULL WHERE id = ?', [req.user.id]);
   res.status(204).end();
 });
+
+// --- Nombre, bio y portada ---
+
+const profileBody = z.object({ display_name: z.string().trim().min(1).max(64), bio: z.string().trim().max(300) }).partial();
+
+router.patch('/me/profile', requireAuth, async (req, res) => {
+  const r = profileBody.safeParse(req.body);
+  if (!r.success || !Object.keys(r.data).length) return res.status(400).json({ error: 'Nombre: 1 a 64 caracteres. Bio: hasta 300.' });
+  const cols = Object.keys(r.data); // vienen del esquema de zod: se pueden usar como columnas
+  await pool.execute(`UPDATE users SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, [...cols.map((c) => r.data[c] || null), req.user.id]);
+  const [[u]] = await pool.execute('SELECT display_name, bio FROM users WHERE id = ?', [req.user.id]);
+  res.json(u);
+});
+
+async function dropCover(userId) {
+  const [[old]] = await pool.execute('SELECT cover FROM users WHERE id = ?', [userId]);
+  if (!old.cover) return;
+  await removeFile(old.cover);
+  await pool.execute('DELETE FROM media WHERE filename = ?', [old.cover]);
+}
+
+router.put('/me/cover', requireAuth, uploadLimit, upload.single('image'), async (req, res) => {
+  const img = req.file && (await saveImage(req.file.buffer, req.user.id, { cover: true }).catch(() => null));
+  if (!img) return res.status(400).json({ error: 'Imagen inválida (JPEG, PNG, WebP o GIF).' });
+  await dropCover(req.user.id);
+  await pool.execute('UPDATE users SET cover = ? WHERE id = ?', [img.filename, req.user.id]);
+  res.json({ cover: img.filename });
+});
+
+router.delete('/me/cover', requireAuth, async (req, res) => {
+  await dropCover(req.user.id);
+  await pool.execute('UPDATE users SET cover = NULL WHERE id = ?', [req.user.id]);
+  res.status(204).end();
+});

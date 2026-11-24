@@ -116,13 +116,15 @@ test('chat: responder y reaccionar, en vivo y en el historial', async () => {
   assert.equal((await a.next('message', (m) => m.message.body === 'sin cita')).message.reply, null);
 
   // Reaccionar: a los dos les llega el resumen con quién reaccionó.
+  // De a uno y esperando cada aviso: si no, el orden entre las dos conexiones no está garantizado.
+  const fireIs = (ids) => (m) => m.message_id === original.id && m.reactions[0]?.user_ids.slice().sort().join() === ids.slice().sort().join();
   b.send({ type: 'react', message_id: original.id, emoji: '🔥', on: true });
+  await a.next('reactions', fireIs([beto.id]));
   a.send({ type: 'react', message_id: original.id, emoji: '🔥', on: true });
-  const both = await a.next('reactions', (m) => m.message_id === original.id && m.reactions[0]?.count === 2);
+  const both = await a.next('reactions', fireIs([ana.id, beto.id]));
   assert.deepEqual(both.reactions[0].user_ids.sort(), [ana.id, beto.id].sort());
   b.send({ type: 'react', message_id: original.id, emoji: '🔥', on: false });
-  // Se espera el estado exacto: en la cola puede quedar un aviso viejo con count 1 (el primer 🔥 de beto).
-  const one = await a.next('reactions', (m) => m.message_id === original.id && m.reactions[0]?.user_ids.join() === String(ana.id));
+  const one = await a.next('reactions', fireIs([ana.id]));
   assert.deepEqual(one.reactions, [{ emoji: '🔥', count: 1, user_ids: [ana.id] }]);
   b.send({ type: 'react', message_id: original.id, emoji: '💩', on: true });
   assert.match((await b.next('error')).error, /inválida/);
