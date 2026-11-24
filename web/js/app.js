@@ -1,5 +1,6 @@
 import { api, getToken, imageUrl, setToken, WS_URL } from './api.js';
 import { LOOKS } from './looks.js';
+import { audioRecorder, renderMedia } from './media.js';
 
 const root = document.getElementById('app');
 const MAX_IMAGE = 5 * 1024 * 1024;
@@ -601,6 +602,34 @@ function postFooter(p) {
   const list = h('div', { className: 'comment-list' });
   const input = withMentions(h('input', { maxLength: 1000, placeholder: 'Escribí un comentario…', required: true, autocomplete: 'off' }));
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Comentar' }, icon('send'));
+  let attachment = null;
+  const chosenName = h('span', { className: 'comment-attachment-name' });
+  const chosen = h('div', { className: 'comment-attachment', hidden: true },
+    chosenName,
+    btn('x', 'Quitar adjunto', () => setAttachment(null), 'ghost', { iconOnly: true }),
+  );
+  function setAttachment(file) {
+    const maxMb = file?.type.startsWith('video/') ? 20 : 5;
+    if (file && file.size > maxMb * 1024 * 1024) {
+      toast(`El archivo pasa los ${maxMb} MB.`, 'error');
+      return;
+    }
+    attachment = file;
+    chosen.hidden = !file;
+    chosenName.textContent = file?.name ?? '';
+    input.required = !file;
+  }
+  const fileInput = h('input', {
+    type: 'file',
+    accept: 'image/*,video/mp4,video/webm,video/quicktime,audio/*',
+    hidden: true,
+    onchange: () => {
+      const file = fileInput.files[0];
+      if (file) setAttachment(file);
+      fileInput.value = '';
+    },
+  });
+  const recordBtn = audioRecorder({ onRecorded: setAttachment, onError: (message) => toast(message, 'error') });
   const section = h(
     'div',
     { className: 'comments', hidden: true },
@@ -611,11 +640,22 @@ function postFooter(p) {
         className: 'comment-form',
         onsubmit: async (e) => {
           e.preventDefault();
+          if (sendBtn.disabled) return;
+          const body = input.value;
+          const file = attachment;
+          let data = { json: { body } };
+          if (file) {
+            const form = new FormData();
+            form.append('body', body);
+            form.append('file', file);
+            data = { form };
+          }
           sendBtn.disabled = true;
           try {
-            const { comment } = await api(`/posts/${p.id}/comments`, { method: 'POST', json: { body: input.value } });
+            const { comment } = await api(`/posts/${p.id}/comments`, { method: 'POST', ...data });
             list.append(commentRow(comment, () => setCount(count - 1)));
-            input.value = '';
+            if (input.value === body) input.value = '';
+            if (attachment === file) setAttachment(null);
             setCount(count + 1);
           } catch (err) {
             toast(err.message, 'error');
@@ -624,9 +664,13 @@ function postFooter(p) {
           }
         },
       },
-      avatar(me, 'sm'),
-      input,
-      sendBtn,
+      h('div', { className: 'comment-input-row' }, avatar(me, 'sm'), input, sendBtn),
+      h('div', { className: 'comment-attachments' },
+        fileInput,
+        btn('paperclip', 'Adjuntar archivo', () => fileInput.click(), 'ghost', { iconOnly: true }),
+        recordBtn,
+        chosen,
+      ),
     ),
   );
   let loaded = false;
@@ -650,14 +694,15 @@ function postFooter(p) {
 
 function commentRow(c, onDeleted) {
   const date = new Date(c.created_at);
-  const text = h('p', {}, ...richText(c.body));
+  const text = h('p', { hidden: !c.body }, ...richText(c.body));
+  const attachment = c.media && renderMedia(c.media, { onOpenPhoto: openPhoto });
   const meta = h('time', { dateTime: c.created_at, title: fmt.format(date) }, timeAgo(date), c.edited_at && editedTag());
   const tools = h('div', { className: 'post-tools' });
   const row = h(
     'div',
     { className: 'comment' },
     profileLink(c, {}, avatar(c, 'sm')),
-    h('div', { className: 'comment-bubble' }, profileLink(c, { className: 'name' }, h('strong', {}, c.display_name)), text, meta),
+    h('div', { className: 'comment-bubble' }, profileLink(c, { className: 'name' }, h('strong', {}, c.display_name)), text, attachment, meta),
     tools,
   );
   if (c.user_id === me.id) {
@@ -668,6 +713,7 @@ function commentRow(c, onDeleted) {
           save: async (body) => {
             const { comment } = await api(`/comments/${c.id}`, { method: 'PATCH', json: { body } });
             c.body = comment.body;
+            text.hidden = !comment.body;
             text.replaceChildren(...richText(comment.body));
             if (!meta.querySelector('.edited')) meta.append(editedTag());
           },

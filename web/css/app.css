@@ -268,8 +268,31 @@ button.sm { min-height: 32px; padding: 4px 8px; font-size: 0.85rem; }
 .comment-bubble p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .comment-bubble time { font-size: 0.75rem; color: var(--muted); }
 .comment > button { margin-left: auto; }
-.comment-form { display: flex; gap: 8px; align-items: center; }
-.comment-form input { padding: 8px 12px; }
+.comment-form { display: grid; gap: 6px; }
+.comment-input-row, .comment-attachments { display: flex; gap: 8px; align-items: center; }
+.comment-input-row input { min-width: 0; padding: 8px 12px; }
+.comment-attachments { padding-inline-start: 40px; flex-wrap: wrap; }
+.comment-attachment {
+  display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%;
+  padding-inline-start: 8px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); color: var(--muted); font-size: 0.85rem;
+}
+.comment-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-attachment button { flex: none; }
+.attachment-media { margin-block: 6px; color: var(--muted); font-size: 0.85rem; }
+.attachment-media:empty { display: none; }
+.attachment-media :is(img, video, audio) { display: block; max-width: 100%; }
+.attachment-media :is(img, video) {
+  max-height: 360px; object-fit: contain; border-radius: var(--radius); background: var(--card);
+}
+.attachment-media audio { width: 260px; }
+.attachment-photo { display: block; max-width: 100%; padding: 0; border: 0; background: var(--card); border-radius: var(--radius); }
+.attachment-photo img { cursor: zoom-in; }
+.audio-recorder { min-width: 36px; }
+.audio-recorder.recording { color: var(--text); font-variant-numeric: tabular-nums; }
+.audio-recorder.recording::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; background: #e33;
+}
 
 /* --- Chat --- */
 .chat-main { display: flex; flex-direction: column; height: calc(100dvh - 58px); padding-bottom: max(12px, env(safe-area-inset-bottom)); }
