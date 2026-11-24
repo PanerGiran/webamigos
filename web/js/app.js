@@ -1,4 +1,5 @@
 import { api, getToken, imageUrl, setToken, WS_URL } from './api.js';
+import { LOOKS } from './looks.js';
 
 const root = document.getElementById('app');
 const MAX_IMAGE = 5 * 1024 * 1024;
@@ -150,13 +151,16 @@ const safe = (fn) => async (...args) => {
   }
 };
 
+// Marca de la app: dos círculos sobre el color de acento de la apariencia elegida.
+const brandMark = () => h('span', { className: 'brand-mark', ariaHidden: 'true' });
+
 function shell(...children) {
   const path = location.pathname;
   return [
     h(
       'header',
       { className: 'top' },
-      link('/', { className: 'brand' }, h('img', { src: '/favicon.svg', alt: '' }), 'Amigos'),
+      link('/', { className: 'brand' }, brandMark(), 'Amigos'),
       h(
         'nav',
         {},
@@ -176,7 +180,7 @@ function authLayout(subtitle, form) {
   return h(
     'div',
     { className: 'auth' },
-    h('div', { className: 'auth-box fade-in' }, h('div', { className: 'auth-head' }, h('img', { src: '/favicon.svg', alt: '' }), h('h1', {}, 'Amigos'), h('p', {}, subtitle)), form),
+    h('div', { className: 'auth-box fade-in' }, h('div', { className: 'auth-head' }, brandMark(), h('h1', {}, 'Amigos'), h('p', {}, subtitle)), form),
   );
 }
 
@@ -880,10 +884,41 @@ function coverBox(filename, extra = '') {
   return box;
 }
 
-// Editar perfil: tema claro/oscuro (lo aplica js/theme.js; se guarda en este dispositivo).
-function appearanceCard() {
+// --- Apariencia (la aplica js/theme.js; se guarda en este dispositivo) ---
+// Las apariencias se definen en css/looks.css y se listan en js/looks.js.
+
+const currentLook = () => localStorage.getItem('look') || 'clasico';
+
+// Grilla de apariencias, cada una con una mini vista previa pintada con sus propios colores.
+function lookGrid() {
+  const grid = h('div', { className: 'look-grid', role: 'radiogroup', ariaLabel: 'Apariencia' });
+  const draw = () =>
+    grid.replaceChildren(
+      ...LOOKS.map((look) => {
+        const preview = h('div', { className: 'look-preview' }, h('div', { className: 'lp-card' }, h('div', { className: 'lp-title' }, 'Amigos'), h('div', { className: 'lp-line' }), h('div', { className: 'lp-line' }), h('div', { className: 'lp-button' })));
+        preview.dataset.look = look.id;
+        const b = h('button', {
+          type: 'button',
+          className: `look-option${look.id === currentLook() ? ' selected' : ''}`,
+          onclick: () => {
+            localStorage.setItem('look', look.id);
+            window.applyTheme();
+            draw();
+          },
+        }, preview, h('span', { className: 'look-name' }, look.name), h('span', { className: 'look-desc' }, look.description));
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', look.id === currentLook());
+        return b;
+      }),
+    );
+  draw();
+  return grid;
+}
+
+// Modo claro / oscuro / automático (sigue al teléfono).
+function modeTabs() {
   const opts = [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']];
-  const bar = h('div', { className: 'tabs', role: 'radiogroup', ariaLabel: 'Tema' });
+  const bar = h('div', { className: 'tabs', role: 'radiogroup', ariaLabel: 'Modo' });
   const draw = (sel) =>
     bar.replaceChildren(
       ...opts.map(([value, text]) => {
@@ -902,7 +937,40 @@ function appearanceCard() {
       }),
     );
   draw(localStorage.getItem('theme') ?? 'auto');
-  return h('section', { className: 'card fade-in' }, h('h2', {}, 'Apariencia'), h('p', { className: 'muted small', style: 'margin-bottom:10px' }, 'Automático sigue el modo de tu teléfono.'), bar);
+  return bar;
+}
+
+// Editar perfil: apariencia y modo.
+function appearanceCard() {
+  return h(
+    'section',
+    { className: 'card fade-in' },
+    h('h2', {}, 'Apariencia'),
+    lookGrid(),
+    h('h3', { className: 'subhead' }, 'Modo'),
+    h('p', { className: 'muted small', style: 'margin-bottom:10px' }, 'Automático sigue el modo de tu teléfono.'),
+    modeTabs(),
+  );
+}
+
+// La primera vez que se entra en un dispositivo: elegir cómo se ve la app (después se cambia en Editar perfil).
+function welcomeLookScreen() {
+  return h(
+    'main',
+    { className: 'welcome' },
+    h('h1', {}, `¡Hola, ${me.display_name.split(' ')[0]}!`),
+    h('p', { className: 'muted' }, 'Elegí cómo querés ver Amigos. Lo podés cambiar cuando quieras desde Editar perfil.'),
+    lookGrid(),
+    h('h3', { className: 'subhead' }, 'Modo'),
+    modeTabs(),
+    h('button', {
+      className: 'primary block',
+      onclick: () => {
+        localStorage.setItem('look', currentLook()); // si no tocó ninguna, queda la clásica y no se vuelve a preguntar
+        render();
+      },
+    }, 'Listo'),
+  );
 }
 
 // Editar perfil: nombre, bio y portada.
@@ -1526,6 +1594,7 @@ async function render() {
       );
     }
   }
+  if (!localStorage.getItem('look')) return root.replaceChildren(welcomeLookScreen());
   if (path === '/perfil') return root.replaceChildren(...profileScreen());
   if (path === '/buscar') return root.replaceChildren(...searchScreen());
   const profile = path.match(/^\/u\/([a-z0-9_]{1,32})$/);

@@ -7,9 +7,15 @@
     var dark = pick === 'dark' || (pick !== 'light' && media.matches);
     document.documentElement.classList.toggle('dark', dark);
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    document.documentElement.dataset.look = localStorage.getItem('look') || 'clasico';
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = dark ? '#0f0f14' : '#f6f5fb';
+    var bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    if (meta && bg) meta.content = bg;
   };
   media.addEventListener('change', window.applyTheme);
   window.applyTheme();
+  // El script corre antes que los estilos del head. Volvé a leer --bg cuando estén cargados.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.applyTheme, { once: true });
+  }
 })();
