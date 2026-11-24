@@ -493,3 +493,12 @@ a.name { color: inherit; text-decoration: none; }
 .zoom { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
 .zoom input { flex: 1; padding: 0; accent-color: var(--accent); }
 .frame-actions { justify-content: flex-end; margin-top: 12px; }
+
+/* --- Barra de scroll con los colores de la apariencia (en lugar de la gris del sistema) --- */
+/* scrollbar-color se hereda: vale también para el chat, los paneles y las listas con scroll propio. */
+html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--line)) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 55%, var(--line)); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--accent); }
+::-webkit-scrollbar-corner { background: transparent; }
