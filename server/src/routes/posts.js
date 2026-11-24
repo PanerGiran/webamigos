@@ -21,7 +21,7 @@ router.get('/posts', async (req, res) => {
   if (user) where.push('u.username = ?'), params.push(user);
   if (before > 0) where.push('p.id < ?'), params.push(before);
   const [rows] = await pool.execute(
-    `SELECT p.id, p.body, p.scope, p.created_at, p.user_id, u.username, u.display_name, u.avatar, m.filename, m.width, m.height
+    `SELECT p.id, p.body, p.scope, p.created_at, p.edited_at, p.user_id, u.username, u.display_name, u.avatar, m.filename, m.width, m.height
        FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media m ON m.id = p.media_id
       WHERE ${where.join(' AND ')}
       ORDER BY p.id DESC LIMIT ${PAGE}`,
@@ -47,6 +47,19 @@ router.post('/posts', uploadLimit, upload.single('image'), async (req, res) => {
     notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : '📷 Subió una foto', url: '/', tag: `post-${r.insertId}` }, { except: [req.user.id] });
   }
   res.status(201).json({ id: r.insertId });
+});
+
+// Editar el texto: solo el autor. Si el post no tiene foto, el texto no puede quedar vacío.
+router.patch('/posts/:id', async (req, res) => {
+  const body = typeof req.body?.body === 'string' ? req.body.body.trim() : null;
+  if (body === null || body.length > 5000) return res.status(400).json({ error: 'texto inválido' });
+  const [[post]] = await pool.execute('SELECT id, user_id, media_id FROM posts WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!post) return res.status(404).json({ error: 'no existe' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Solo el autor puede editarlo.' });
+  if (!body && !post.media_id) return res.status(400).json({ error: 'El post necesita texto o una imagen.' });
+  await pool.execute('UPDATE posts SET body = ?, edited_at = NOW() WHERE id = ?', [body || null, post.id]);
+  const [[row]] = await pool.execute('SELECT body, edited_at FROM posts WHERE id = ?', [post.id]);
+  res.json(row);
 });
 
 router.delete('/posts/:id', async (req, res) => {

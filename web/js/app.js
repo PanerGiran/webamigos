@@ -250,16 +250,56 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
   );
 }
 
+// Texto escrito por usuarios. Por ahora texto plano; las menciones lo convierten en links.
+const richText = (s) => [s ?? ''];
+const editedTag = () => h('span', { className: 'edited', title: 'Editado' }, ' · editado');
+
+// Editor en el lugar: cambia `el` por un cuadro de texto; al guardar llama a save(texto) y vuelve a mostrar `el`.
+function editInPlace(el, current, { maxLength, save }) {
+  const input = h('textarea', { value: current, maxLength, rows: 3 });
+  const msg = errorBox();
+  const back = () => form.replaceWith(el);
+  const form = h(
+    'form',
+    {
+      className: 'edit-form',
+      onsubmit: onSubmit(msg, async () => {
+        await save(input.value.trim());
+        back();
+      }),
+    },
+    input,
+    msg,
+    h('div', { className: 'row' }, h('button', { type: 'button', className: 'ghost sm', onclick: back }, 'Cancelar'), h('button', { className: 'primary sm' }, 'Guardar')),
+  );
+  el.replaceWith(form);
+  input.focus();
+}
+
 function postCard(p) {
   const date = new Date(p.created_at);
-  const head = h(
-    'div',
-    { className: 'post-head' },
-    profileLink(p, { className: 'who-link' }, avatar(p), h('div', { className: 'who' }, h('strong', {}, p.display_name), h('time', { dateTime: p.created_at, title: fmt.format(date) }, timeAgo(date)))),
-  );
-  const card = h('article', { className: 'card post fade-in' }, head, p.body && h('p', { className: 'body' }, p.body));
+  const who = h('div', { className: 'who' }, h('strong', {}, p.display_name), h('time', { dateTime: p.created_at, title: fmt.format(date) }, timeAgo(date)), p.edited_at && editedTag());
+  const tools = h('div', { className: 'post-tools' });
+  const head = h('div', { className: 'post-head' }, profileLink(p, { className: 'who-link' }, avatar(p), who), tools);
+  const bodyEl = h('p', { className: 'body', hidden: !p.body }, ...richText(p.body));
+  const card = h('article', { className: 'card post fade-in' }, head, bodyEl);
+  if (p.user_id === me.id) {
+    tools.append(
+      btn('edit', 'Editar post', () =>
+        editInPlace(bodyEl, p.body ?? '', {
+          maxLength: 5000,
+          save: async (text) => {
+            const r = await api(`/posts/${p.id}`, { method: 'PATCH', json: { body: text } });
+            p.body = r.body;
+            bodyEl.replaceChildren(...richText(r.body));
+            bodyEl.hidden = !r.body;
+            if (!who.querySelector('.edited')) who.append(editedTag());
+          },
+        }), 'ghost', { iconOnly: true }),
+    );
+  }
   if (p.user_id === me.id || me.role === 'admin') {
-    head.append(
+    tools.append(
       btn('trash', 'Borrar post', safe(async () => {
         if (!confirm('¿Borrar este post?')) return;
         await api(`/posts/${p.id}`, { method: 'DELETE' });
@@ -366,20 +406,32 @@ function postFooter(p) {
 
 function commentRow(c, onDeleted) {
   const date = new Date(c.created_at);
+  const text = h('p', {}, ...richText(c.body));
+  const meta = h('time', { dateTime: c.created_at, title: fmt.format(date) }, timeAgo(date), c.edited_at && editedTag());
+  const tools = h('div', { className: 'post-tools' });
   const row = h(
     'div',
     { className: 'comment' },
     profileLink(c, {}, avatar(c, 'sm')),
-    h(
-      'div',
-      { className: 'comment-bubble' },
-      profileLink(c, { className: 'name' }, h('strong', {}, c.display_name)),
-      h('p', {}, c.body),
-      h('time', { dateTime: c.created_at, title: fmt.format(date) }, timeAgo(date)),
-    ),
+    h('div', { className: 'comment-bubble' }, profileLink(c, { className: 'name' }, h('strong', {}, c.display_name)), text, meta),
+    tools,
   );
+  if (c.user_id === me.id) {
+    tools.append(
+      btn('edit', 'Editar comentario', () =>
+        editInPlace(text, c.body, {
+          maxLength: 1000,
+          save: async (body) => {
+            const { comment } = await api(`/comments/${c.id}`, { method: 'PATCH', json: { body } });
+            c.body = comment.body;
+            text.replaceChildren(...richText(comment.body));
+            if (!meta.querySelector('.edited')) meta.append(editedTag());
+          },
+        }), 'ghost', { iconOnly: true }),
+    );
+  }
   if (c.user_id === me.id || me.role === 'admin') {
-    row.append(
+    tools.append(
       btn('trash', 'Borrar comentario', safe(async () => {
         if (!confirm('¿Borrar este comentario?')) return;
         await api(`/comments/${c.id}`, { method: 'DELETE' });

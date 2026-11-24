@@ -182,7 +182,14 @@ button.sm { padding: 7px 11px; font-size: 0.85rem; border-radius: 10px; }
 .post-head .who { flex: 1; min-width: 0; line-height: 1.25; }
 .post-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-head time { color: var(--muted); font-size: 0.82rem; }
-.post-head button.danger { color: var(--muted); }
+.post-tools { display: flex; flex: none; }
+.post-tools button { color: var(--muted); padding: 7px; }
+.edited { color: var(--muted); font-size: 0.78rem; }
+.edit-form { margin: 0 0 10px; }
+.edit-form textarea { background: var(--field); border: 1px solid var(--line); }
+.edit-form .row { margin-top: 6px; }
+.comment .edit-form { flex: 1; margin: 0; }
+.comment .post-tools { margin-left: auto; }
 .post .body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1.02rem; margin-bottom: 10px; }
 .post .body:last-child { margin-bottom: 0; }
 .post .photo {

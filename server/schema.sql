@@ -59,6 +59,7 @@ CREATE TABLE posts (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
   scope ENUM('feed','profile') NOT NULL DEFAULT 'feed',  -- profile: solo en el perfil del autor
+  edited_at DATETIME NULL,
   INDEX idx_posts_created (created_at),
   INDEX idx_posts_user_scope (user_id, scope, id),
   FOREIGN KEY (user_id) REFERENCES users(id),
@@ -71,6 +72,7 @@ CREATE TABLE comments (
   user_id BIGINT UNSIGNED NOT NULL,
   body VARCHAR(1000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  edited_at DATETIME NULL,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );

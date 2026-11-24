@@ -44,7 +44,7 @@ async function livePost(id) {
   return p;
 }
 
-const COMMENT_SELECT = `SELECT c.id, c.post_id, c.body, c.created_at, c.user_id, u.username, u.display_name, u.avatar
+const COMMENT_SELECT = `SELECT c.id, c.post_id, c.body, c.created_at, c.edited_at, c.user_id, u.username, u.display_name, u.avatar
                           FROM comments c JOIN users u ON u.id = c.user_id`;
 const commentBody = z.object({ body: z.string().trim().min(1).max(1000) });
 const reactionBody = z.object({ emoji: z.enum(EMOJIS), on: z.boolean() });
@@ -72,6 +72,17 @@ router.post('/posts/:id/comments', commentLimit, async (req, res) => {
     );
   }
   res.status(201).json({ comment });
+});
+
+router.patch('/comments/:id', async (req, res) => {
+  const r = commentBody.safeParse(req.body);
+  if (!r.success) return res.status(400).json({ error: 'El comentario tiene que tener entre 1 y 1000 caracteres.' });
+  const [[c]] = await pool.execute('SELECT id, user_id FROM comments WHERE id = ?', [req.params.id]);
+  if (!c) return res.status(404).json({ error: 'no existe' });
+  if (c.user_id !== req.user.id) return res.status(403).json({ error: 'Solo el autor puede editarlo.' });
+  await pool.execute('UPDATE comments SET body = ?, edited_at = NOW() WHERE id = ?', [r.data.body, c.id]);
+  const [[comment]] = await pool.execute(`${COMMENT_SELECT} WHERE c.id = ?`, [c.id]);
+  res.json({ comment });
 });
 
 router.delete('/comments/:id', async (req, res) => {
