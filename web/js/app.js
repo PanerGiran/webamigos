@@ -1243,6 +1243,7 @@ function profileScreen() {
   const logout = async () => {
     await disablePush().catch(() => {}); // que este dispositivo no siga recibiendo avisos de esta cuenta
     await api('/logout', { method: 'POST' }).catch(() => {});
+    closeLive();
     setToken(null);
     me = null;
     go('/login');
@@ -1466,7 +1467,85 @@ function adminScreen() {
 
 // --- Chat ---
 
-let chatSocket = null; // una sola conexión; render() la cierra al salir del chat
+// --- Conexión en vivo: una sola para toda la app (chat, conectados y avisos) ---
+
+let liveSocket = null;
+let liveReady = false; // ya se autenticó: recién ahí se puede mandar
+let liveRetry = 0;
+let livePresence = [];
+let liveScreen = null; // la pantalla abierta que quiere los eventos (el chat); render() la limpia
+
+function sendLive(msg) {
+  if (!liveReady) return false;
+  liveSocket.send(JSON.stringify(msg));
+  return true;
+}
+
+function connectLive() {
+  if (liveSocket) return;
+  const ws = new WebSocket(WS_URL);
+  liveSocket = ws;
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: getToken() }));
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'ready') (liveReady = true), (liveRetry = 0);
+    else if (msg.type === 'presence') livePresence = msg.users;
+    else if (msg.type === 'notify') liveToast(msg);
+    else if (msg.type === 'error') toast(msg.error, 'error');
+    // Mensaje del chat: aviso solo si no lo estás mirando y no lo mandaste vos.
+    else if (msg.type === 'message' && msg.message.user_id !== me?.id && location.pathname !== '/chat') {
+      liveToast({ kind: 'chat', from: msg.message, text: msg.message.body || '📎 Mandó un adjunto', url: '/chat' });
+    }
+    liveScreen?.(msg);
+  };
+  ws.onclose = (e) => {
+    liveReady = false;
+    if (liveSocket !== ws) return; // se cerró a propósito (cerrar sesión)
+    liveSocket = null;
+    liveScreen?.({ type: 'closed' });
+    if (e.code === 4001) {
+      setToken(null);
+      return location.assign('/login');
+    }
+    // Reintenta cada vez más espaciado (2 s, 4 s… hasta 30 s): si el servidor está caído no insiste en loop.
+    setTimeout(() => getToken() && connectLive(), Math.min(30_000, 2000 * 2 ** liveRetry++));
+  };
+}
+
+function closeLive() {
+  const ws = liveSocket;
+  liveSocket = null;
+  liveReady = false;
+  ws?.close();
+}
+
+// Avisos abajo a la derecha: foto, nombre, qué pasó y el texto. Rojo para chat y comentarios.
+const liveBox = h('div', { className: 'live-toasts' });
+liveBox.setAttribute('aria-live', 'polite');
+document.body.append(liveBox);
+const LIVE_KINDS = { chat: ['Chat', true], comment: ['Comentario', true], mention: ['Mención', false], post: ['Post nuevo', false] };
+function liveToast({ kind, from, text, url }) {
+  const [tag, red] = LIVE_KINDS[kind] ?? ['Aviso', false];
+  const close = () => el.remove();
+  const el = h(
+    'div',
+    {
+      className: `live-toast${red ? ' red' : ''}`,
+      role: 'status',
+      onclick: (e) => {
+        if (e.target.closest('.live-close')) return;
+        close();
+        go(url);
+      },
+    },
+    avatar(from, 'sm'),
+    h('div', { className: 'live-body' }, h('div', { className: 'live-top' }, h('strong', {}, from.display_name), h('span', { className: 'live-tag' }, tag)), h('p', {}, text)),
+    btn('x', 'Cerrar aviso', close, 'ghost live-close', { iconOnly: true }),
+  );
+  liveBox.prepend(el);
+  while (liveBox.children.length > 3) liveBox.lastChild.remove();
+  setTimeout(close, 6000);
+}
 const hourFmt = new Intl.DateTimeFormat('es-AR', { timeStyle: 'short' });
 const dayHourFmt = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -1487,7 +1566,7 @@ function chatScreen() {
 
   const react = (m, emoji) => {
     const on = !m.reactions?.some((r) => r.emoji === emoji && r.user_ids.includes(me.id));
-    chatSocket?.send(JSON.stringify({ type: 'react', message_id: m.id, emoji, on }));
+    sendLive({ type: 'react', message_id: m.id, emoji, on });
   };
   function cancelReply() {
     replyTo = null;
@@ -1589,47 +1668,37 @@ function chatScreen() {
     draw('bottom');
   }
 
-  function connect() {
-    const ws = new WebSocket(WS_URL);
-    chatSocket = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: getToken() }));
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'ready') {
-        status.textContent = 'En línea';
-        sendBtn.disabled = false;
-        loadLatest().catch((err) => toast(err.message, 'error'));
-      } else if (msg.type === 'message' && !messages.some((m) => m.id === msg.message.id)) {
-        messages.push(msg.message);
-        draw(msg.message.user_id === me.id ? 'bottom' : undefined);
-      } else if (msg.type === 'reactions') {
-        const m = messages.find((x) => x.id === msg.message_id);
-        if (m) (m.reactions = msg.reactions), draw();
-      } else if (msg.type === 'presence') {
-        const n = msg.users.length;
-        online.replaceChildren(
-          h('div', { className: 'stack' }, msg.users.slice(0, 5).map((u) => avatar(u, 'xs'))),
-          h('span', { className: 'muted small' }, `${n} conectado${n === 1 ? '' : 's'}`),
-        );
-        online.title = msg.users.map((u) => u.display_name).join(', ');
-      } else if (msg.type === 'error') toast(msg.error, 'error');
-    };
-    ws.onclose = (e) => {
-      sendBtn.disabled = true;
-      if (chatSocket !== ws) return; // se salió del chat
-      if (e.code === 4001) {
-        setToken(null);
-        return location.assign('/login');
-      }
-      status.textContent = 'Reconectando…';
-      setTimeout(() => chatSocket === ws && connect(), 2000);
-    };
+  function drawOnline(users) {
+    const n = users.length;
+    online.replaceChildren(
+      h('div', { className: 'stack' }, users.slice(0, 5).map((u) => avatar(u, 'xs'))),
+      h('span', { className: 'muted small' }, `${n} conectado${n === 1 ? '' : 's'}`),
+    );
+    online.title = users.map((u) => u.display_name).join(', ');
   }
+
+  // Eventos de la conexión global mientras el chat está abierto.
+  liveScreen = (msg) => {
+    if (msg.type === 'ready') {
+      status.textContent = 'En línea';
+      sendBtn.disabled = false;
+      loadLatest().catch((err) => toast(err.message, 'error')); // al reconectar trae lo que se perdió
+    } else if (msg.type === 'closed') {
+      sendBtn.disabled = true;
+      status.textContent = 'Reconectando…';
+    } else if (msg.type === 'message' && !messages.some((m) => m.id === msg.message.id)) {
+      messages.push(msg.message);
+      draw(msg.message.user_id === me.id ? 'bottom' : undefined);
+    } else if (msg.type === 'reactions') {
+      const m = messages.find((x) => x.id === msg.message_id);
+      if (m) (m.reactions = msg.reactions), draw();
+    } else if (msg.type === 'presence') drawOnline(msg.users);
+  };
 
   const send = () => {
     const body = input.value.trim();
-    if (!body || chatSocket?.readyState !== WebSocket.OPEN) return;
-    chatSocket.send(JSON.stringify({ type: 'message', body, ...(replyTo && { reply_to: replyTo.id }) }));
+    if (!body) return;
+    if (!sendLive({ type: 'message', body, ...(replyTo && { reply_to: replyTo.id }) })) return toast('Sin conexión: esperá a que vuelva.', 'error');
     cancelReply();
     input.value = '';
     input.style.height = '';
@@ -1648,9 +1717,11 @@ function chatScreen() {
   };
 
   draw();
-  connect();
+  drawOnline(livePresence);
+  // Si la conexión ya estaba lista (lo normal), no va a llegar otro "ready": se arranca acá.
+  if (liveReady) liveScreen({ type: 'ready' });
   const nodes = shell(
-    h('div', { className: 'chat-head' }, h('div', {}, h('h1', {}, 'Chat del grupo'), status), online),
+    h('div', { className: 'chat-head' }, link('/', { className: 'back chat-back', title: 'Volver al feed' }, '← Feed'), h('div', { className: 'chat-title' }, h('h1', {}, 'Chat del grupo'), status), online),
     list,
     replyBar,
     h('form', { className: 'chat-form', onsubmit: (e) => (e.preventDefault(), send()) }, input, sendBtn),
@@ -1665,11 +1736,7 @@ async function render() {
   const path = location.pathname;
   if (sheet.open) sheet.close();
   closeMentions();
-  if (chatSocket && path !== '/chat') {
-    const ws = chatSocket;
-    chatSocket = null;
-    ws.close();
-  }
+  liveScreen = null; // la pantalla nueva vuelve a engancharse si quiere eventos
   const invite = path.match(/^\/invite\/([\w-]+)$/);
   if (invite) return root.replaceChildren(inviteScreen(invite[1]));
   if (!getToken()) return path === '/login' ? root.replaceChildren(loginScreen()) : go('/login');
@@ -1686,6 +1753,7 @@ async function render() {
       );
     }
   }
+  connectLive();
   if (!localStorage.getItem('look')) return root.replaceChildren(welcomeLookScreen());
   if (path === '/perfil') return root.replaceChildren(...profileScreen());
   if (path === '/buscar') return root.replaceChildren(...searchScreen());
@@ -1700,7 +1768,7 @@ async function render() {
     // Si mientras cargaba se navegó a otra pantalla, no pisarla.
     return location.pathname === path && root.replaceChildren(...nodes);
   }
-  if (path === '/chat') return chatSocket || root.replaceChildren(...chatScreen());
+  if (path === '/chat') return root.replaceChildren(...chatScreen());
   if (path === '/admin' && me.role === 'admin') return root.replaceChildren(...adminScreen());
   if (path !== '/') return go('/');
   root.replaceChildren(...feedScreen());

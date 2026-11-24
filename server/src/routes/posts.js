@@ -110,10 +110,10 @@ router.post('/posts', uploadLimit, uploadPost, async (req, res) => {
   // Los mencionados reciben "te mencionó" en lugar del aviso general (nunca los dos).
   const mentioned = await mentionedIds(body, [req.user.id]);
   const url = scope === 'feed' ? '/' : `/u/${req.user.username}`;
-  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: snippet(body), url, tag: `post-${r.insertId}` }, { to: mentioned });
+  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: snippet(body), url, tag: `post-${r.insertId}` }, { to: mentioned, from: req.user });
   if (scope === 'feed') {
     const what = saved.length > 1 ? `📷 Subió ${saved.length} fotos` : '📷 Subió una foto';
-    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? `${poll.options ? '📊 ' : ''}${snippet(body)}` : what, url, tag: `post-${r.insertId}` }, { except: [req.user.id, ...mentioned] });
+    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? `${poll.options ? '📊 ' : ''}${snippet(body)}` : what, url, tag: `post-${r.insertId}` }, { except: [req.user.id, ...mentioned], from: req.user });
   }
   res.status(201).json({ id: r.insertId });
 });

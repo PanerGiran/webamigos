@@ -4,6 +4,7 @@ import { pool } from './db.js';
 import { sessionFromToken } from './auth.js';
 import { mentionedIds, notifyLater, snippet } from './push.js';
 import { EMOJIS, messageReactions, quote } from './routes/social.js';
+import { live } from './live.js';
 
 const AUTH_TIMEOUT = 5000;
 const PING_EVERY = 30_000; // también evita que Apache corte el túnel por inactividad (Timeout de 60 s)
@@ -20,6 +21,7 @@ export function attachChat(server) {
   const send = (ws, msg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
   const authed = () => [...wss.clients].filter((c) => c.user);
   const broadcast = (msg) => authed().forEach((c) => send(c, msg));
+  live.sendTo = (ids, msg) => authed().filter((c) => ids.includes(c.user.id)).forEach((c) => send(c, msg));
   function presence() {
     const users = new Map(authed().map(({ user: u }) => [u.id, { id: u.id, username: u.username, display_name: u.display_name, avatar: u.avatar }]));
     broadcast({ type: 'presence', users: [...users.values()] });
