@@ -91,8 +91,19 @@ CREATE TABLE messages (                        -- chat general (agregar room_id 
   user_id BIGINT UNSIGNED NOT NULL,
   body VARCHAR(2000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reply_to BIGINT UNSIGNED NULL,                -- mensaje al que responde
   INDEX idx_messages_created (created_at),
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL
+);
+
+CREATE TABLE message_reactions (
+  message_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  emoji VARCHAR(16) NOT NULL,
+  PRIMARY KEY (message_id, user_id, emoji),
+  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE schema_migrations (                -- qué migraciones ya se aplicaron (ver migrate.sh)

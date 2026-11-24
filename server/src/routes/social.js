@@ -122,16 +122,44 @@ router.put('/posts/:id/reactions', async (req, res) => {
 });
 
 // Historial del chat: los últimos 50, en orden cronológico; ?before=<id> para ir más atrás.
+// { message_id: [{ emoji, count, user_ids }] }. Con user_ids cada uno sabe si reaccionó (el chat se actualiza para todos a la vez).
+export async function messageReactions(ids) {
+  const out = Object.fromEntries(ids.map((id) => [id, []]));
+  if (!ids.length) return out;
+  const [rows] = await pool.execute(
+    `SELECT message_id, emoji, GROUP_CONCAT(user_id) AS users FROM message_reactions
+      WHERE message_id IN (${ids.map(() => '?').join(',')}) GROUP BY message_id, emoji`,
+    ids,
+  );
+  for (const r of rows) {
+    const user_ids = r.users.split(',').map(Number);
+    out[r.message_id].push({ emoji: r.emoji, count: user_ids.length, user_ids });
+  }
+  for (const id of ids) out[id].sort((a, b) => EMOJIS.indexOf(a.emoji) - EMOJIS.indexOf(b.emoji));
+  return out;
+}
+
+// Lo que se muestra citado cuando un mensaje responde a otro.
+export const quote = (r) => (r?.id ? { id: r.id, body: snippet(r.body, 140), username: r.username, display_name: r.display_name } : null);
+
 router.get('/messages', async (req, res) => {
   const before = Number.parseInt(req.query.before, 10);
   const [rows] = await pool.execute(
-    `SELECT m.id, m.body, m.created_at, m.user_id, u.username, u.display_name, u.avatar
+    `SELECT m.id, m.body, m.created_at, m.user_id, u.username, u.display_name, u.avatar,
+            r.id AS r_id, r.body AS r_body, ru.username AS r_username, ru.display_name AS r_display_name
        FROM messages m JOIN users u ON u.id = m.user_id
+       LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
       ${before > 0 ? 'WHERE m.id < ?' : ''}
       ORDER BY m.id DESC LIMIT ${CHAT_PAGE}`,
     before > 0 ? [before] : [],
   );
-  res.json({ messages: rows.reverse(), more: rows.length === CHAT_PAGE });
+  const reactions = await messageReactions(rows.map((m) => m.id));
+  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, ...m }) => ({
+    ...m,
+    reply: quote({ id: r_id, body: r_body, username: r_username, display_name: r_display_name }),
+    reactions: reactions[m.id],
+  }));
+  res.json({ messages, more: rows.length === CHAT_PAGE });
 });
 
 // Perfil público de alguien (las cuentas eliminadas no tienen perfil).

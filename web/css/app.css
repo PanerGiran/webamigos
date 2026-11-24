@@ -250,6 +250,33 @@ button.sm { padding: 7px 11px; font-size: 0.85rem; border-radius: 10px; }
 .bubble strong { display: block; font-size: 0.8rem; color: var(--accent); }
 .bubble p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble time { display: block; text-align: right; font-size: 0.7rem; opacity: 0.65; margin-top: 1px; }
+.msg-col { display: flex; flex-direction: column; min-width: 0; }
+.msg.mine .msg-col { align-items: flex-end; }
+.bubble { cursor: pointer; transition: box-shadow 0.15s; }
+.bubble.active { box-shadow: 0 0 0 2px var(--accent); }
+.quote {
+  display: block; width: 100%; text-align: left; margin: 2px 0 4px; padding: 5px 9px; border-radius: 10px;
+  background: rgb(0 0 0 / 0.06); border-left: 3px solid var(--accent); color: inherit; font-weight: 400; font-size: 0.85rem;
+}
+.msg.mine .quote { background: rgb(255 255 255 / 0.18); border-left-color: #fff; }
+.quote strong { display: block; font-size: 0.78rem; }
+.quote span { display: block; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.msg-reactions .chip { padding: 1px 8px; font-size: 0.8rem; }
+.msg-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 4px; padding: 4px 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow); animation: fade-in 0.15s ease-out;
+}
+.msg-actions .emoji { background: none; font-size: 1.2rem; padding: 3px 5px; border-radius: 50%; }
+.msg-actions .emoji:hover { background: var(--field); filter: none; }
+.msg.flash .bubble { box-shadow: 0 0 0 3px var(--accent); }
+.reply-bar {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 8px 8px 12px;
+  background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px;
+}
+.reply-bar .grow { flex: 1; min-width: 0; }
+.reply-bar strong { display: block; font-size: 0.82rem; }
+.reply-bar span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
 .chat-form textarea { border-radius: 22px; padding: 11px 16px; max-height: 140px; }
 .chat-form button { width: 46px; height: 46px; }

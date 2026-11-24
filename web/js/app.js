@@ -961,24 +961,81 @@ function chatScreen() {
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Enviar', disabled: true }, icon('send'));
   const olderBtn = h('button', { type: 'button', className: 'soft sm older' }, 'Ver mensajes anteriores');
 
+  let activeId = null; // mensaje con la barra de acciones abierta (se abre tocándolo)
+  let replyTo = null;
+  const replyBar = h('div', { className: 'reply-bar', hidden: true });
+  const short = (s, n = 90) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+  const react = (m, emoji) => {
+    const on = !m.reactions?.some((r) => r.emoji === emoji && r.user_ids.includes(me.id));
+    chatSocket?.send(JSON.stringify({ type: 'react', message_id: m.id, emoji, on }));
+  };
+  function cancelReply() {
+    replyTo = null;
+    replyBar.hidden = true;
+  }
+  function startReply(m) {
+    replyTo = m;
+    activeId = null;
+    replyBar.replaceChildren(
+      h('div', { className: 'grow' }, h('strong', {}, `Respondiendo a ${m.display_name}`), h('span', { className: 'muted small' }, short(m.body))),
+      btn('x', 'Cancelar respuesta', cancelReply, 'ghost', { iconOnly: true }),
+    );
+    replyBar.hidden = false;
+    draw();
+    input.focus();
+  }
+  // Tocar una cita lleva al mensaje original (si ya está cargado).
+  function jumpTo(id) {
+    const el = list.querySelector(`[data-id="${id}"]`);
+    if (!el) return toast('Ese mensaje es más viejo: tocá "Ver mensajes anteriores".');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1200);
+  }
+
   function bubble(m, prev) {
     const mine = m.user_id === me.id;
     const date = new Date(m.created_at);
     // Mensajes seguidos de la misma persona van agrupados (sin repetir nombre ni avatar).
     const first = !prev || prev.user_id !== m.user_id || date - new Date(prev.created_at) > 5 * 60_000;
     const sameDay = date.toDateString() === new Date().toDateString();
-    return h(
+    const stop = (fn) => (e) => (e.stopPropagation(), fn());
+    const row = h(
       'div',
       { className: `msg${mine ? ' mine' : ''}${first ? ' first' : ''}` },
       !mine && (first ? profileLink(m, {}, avatar(m, 'sm')) : h('span', { className: 'avatar-gap' })),
       h(
         'div',
-        { className: 'bubble' },
-        !mine && first && profileLink(m, { className: 'name' }, h('strong', {}, m.display_name)),
-        h('p', {}, m.body),
-        h('time', { dateTime: m.created_at, title: fmt.format(date) }, (sameDay ? hourFmt : dayHourFmt).format(date)),
+        { className: 'msg-col' },
+        h(
+          'div',
+          {
+            className: `bubble${activeId === m.id ? ' active' : ''}`,
+            onclick: (e) => {
+              if (e.target.closest('a')) return;
+              activeId = activeId === m.id ? null : m.id;
+              draw();
+            },
+          },
+          !mine && first && profileLink(m, { className: 'name' }, h('strong', {}, m.display_name)),
+          m.reply && h('button', { type: 'button', className: 'quote', onclick: stop(() => jumpTo(m.reply.id)) }, h('strong', {}, m.reply.display_name), h('span', {}, m.reply.body)),
+          h('p', {}, ...richText(m.body)),
+          h('time', { dateTime: m.created_at, title: fmt.format(date) }, (sameDay ? hourFmt : dayHourFmt).format(date)),
+        ),
+        m.reactions?.length > 0 &&
+          h('div', { className: 'msg-reactions' }, ...m.reactions.map((r) => h('button', { type: 'button', className: `chip${r.user_ids.includes(me.id) ? ' mine' : ''}`, onclick: stop(() => react(m, r.emoji)) }, `${r.emoji} ${r.count}`))),
+        activeId === m.id &&
+          h(
+            'div',
+            { className: 'msg-actions' },
+            ...EMOJIS.map((e) => h('button', { type: 'button', className: 'emoji', ariaLabel: `Reaccionar con ${e}`, onclick: stop(() => (react(m, e), (activeId = null), draw())) }, e)),
+            h('button', { type: 'button', className: 'soft sm', onclick: stop(() => startReply(m)) }, 'Responder'),
+          ),
       ),
     );
+    row.dataset.id = m.id;
+    return row;
   }
 
   // keep: 'bottom' baja al final, 'top' mantiene la posición al cargar mensajes viejos arriba.
@@ -1026,6 +1083,9 @@ function chatScreen() {
       } else if (msg.type === 'message' && !messages.some((m) => m.id === msg.message.id)) {
         messages.push(msg.message);
         draw(msg.message.user_id === me.id ? 'bottom' : undefined);
+      } else if (msg.type === 'reactions') {
+        const m = messages.find((x) => x.id === msg.message_id);
+        if (m) (m.reactions = msg.reactions), draw();
       } else if (msg.type === 'presence') {
         const n = msg.users.length;
         online.replaceChildren(
@@ -1050,7 +1110,8 @@ function chatScreen() {
   const send = () => {
     const body = input.value.trim();
     if (!body || chatSocket?.readyState !== WebSocket.OPEN) return;
-    chatSocket.send(JSON.stringify({ type: 'message', body }));
+    chatSocket.send(JSON.stringify({ type: 'message', body, ...(replyTo && { reply_to: replyTo.id }) }));
+    cancelReply();
     input.value = '';
     input.style.height = '';
     input.focus();
@@ -1072,6 +1133,7 @@ function chatScreen() {
   const nodes = shell(
     h('div', { className: 'chat-head' }, h('div', {}, h('h1', {}, 'Chat del grupo'), status), online),
     list,
+    replyBar,
     h('form', { className: 'chat-form', onsubmit: (e) => (e.preventDefault(), send()) }, input, sendBtn),
   );
   nodes[1].className = 'chat-main';

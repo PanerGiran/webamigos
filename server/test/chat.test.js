@@ -1,11 +1,16 @@
 // Correr con la base de prueba: UPLOAD_DIR=$(mktemp -d) DB_NAME=amigos_test npm test
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeUser, port } from './helpers.js';
+
+// Si un test falla a la mitad, igual se cierran las conexiones (si no, el proceso de tests no termina nunca).
+const sockets = [];
+after(() => sockets.forEach((ws) => ws.close()));
 
 // Cliente de prueba: junta los mensajes y deja esperar uno de cierto tipo.
 function client() {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  sockets.push(ws);
   const inbox = [];
   const waiters = new Set();
   ws.onmessage = (e) => {
@@ -85,4 +90,50 @@ test('chat: límite de 10 mensajes cada 10 s', async () => {
   assert.match((await c.next('error')).error, /despacio/);
   c.ws.close();
   await c.closed;
+});
+
+test('chat: responder y reaccionar, en vivo y en el historial', async () => {
+  const [ana, beto] = [await makeUser(), await makeUser()];
+  const a = client();
+  const b = client();
+  await Promise.all([a.opened, b.opened]);
+  a.send({ type: 'auth', token: ana.token });
+  b.send({ type: 'auth', token: beto.token });
+  await Promise.all([a.next('ready'), b.next('ready')]);
+
+  a.send({ type: 'message', body: '¿pizza o asado?' });
+  const original = (await b.next('message', (m) => m.message.body === '¿pizza o asado?')).message;
+  assert.equal(original.reply, null);
+  assert.deepEqual(original.reactions, []);
+
+  // Responder: llega con la cita del original.
+  b.send({ type: 'message', body: 'asado obvio', reply_to: original.id });
+  const reply = (await a.next('message', (m) => m.message.body === 'asado obvio')).message;
+  assert.deepEqual(reply.reply, { id: original.id, body: '¿pizza o asado?', username: ana.username, display_name: `Test ${ana.username}` });
+
+  // Responder a algo que no existe: se manda igual, sin cita.
+  b.send({ type: 'message', body: 'sin cita', reply_to: 999999999 });
+  assert.equal((await a.next('message', (m) => m.message.body === 'sin cita')).message.reply, null);
+
+  // Reaccionar: a los dos les llega el resumen con quién reaccionó.
+  b.send({ type: 'react', message_id: original.id, emoji: '🔥', on: true });
+  a.send({ type: 'react', message_id: original.id, emoji: '🔥', on: true });
+  const both = await a.next('reactions', (m) => m.message_id === original.id && m.reactions[0]?.count === 2);
+  assert.deepEqual(both.reactions[0].user_ids.sort(), [ana.id, beto.id].sort());
+  b.send({ type: 'react', message_id: original.id, emoji: '🔥', on: false });
+  // Se espera el estado exacto: en la cola puede quedar un aviso viejo con count 1 (el primer 🔥 de beto).
+  const one = await a.next('reactions', (m) => m.message_id === original.id && m.reactions[0]?.user_ids.join() === String(ana.id));
+  assert.deepEqual(one.reactions, [{ emoji: '🔥', count: 1, user_ids: [ana.id] }]);
+  b.send({ type: 'react', message_id: original.id, emoji: '💩', on: true });
+  assert.match((await b.next('error')).error, /inválida/);
+
+  // El historial trae la cita y las reacciones.
+  const { messages } = await (await call(beto, '/messages')).json();
+  const h1 = messages.find((m) => m.id === original.id);
+  const h2 = messages.find((m) => m.id === reply.id);
+  assert.deepEqual(h1.reactions, [{ emoji: '🔥', count: 1, user_ids: [ana.id] }]);
+  assert.equal(h2.reply.id, original.id);
+  a.ws.close();
+  b.ws.close();
+  await Promise.all([a.closed, b.closed]);
 });
