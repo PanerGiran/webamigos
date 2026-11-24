@@ -242,7 +242,8 @@ function sidePanel(path) {
     h('div', { className: 'side-backdrop', onclick: () => toggleSide(false) }),
     h(
       'aside',
-      { className: 'side', ariaLabel: 'Menú' },
+      // Elegir algo cierra el panel (también en la compu, y queda cerrado hasta que lo vuelvas a abrir).
+      { className: 'side', ariaLabel: 'Menú', onclick: (e) => e.target.closest('a') && toggleSide(false) },
       h('div', { className: 'side-head' }, link('/', { className: 'brand' }, brandMark(), 'Amigos'), close),
       link(`/u/${me.username}`, { className: `side-me${path === `/u/${me.username}` ? ' active' : ''}` }, avatar(me), h('span', { className: 'side-who' }, h('strong', {}, me.display_name), h('small', {}, 'Ver mi perfil'))),
       h(
