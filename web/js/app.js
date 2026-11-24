@@ -353,13 +353,14 @@ function postFooter(p) {
   function drawChips() {
     const ordered = EMOJIS.map((e) => reactions.find((r) => r.emoji === e)).filter(Boolean);
     chips.replaceChildren(
-      ...ordered.map((r) => {
+      ...[...ordered.map((r) => {
         const b = h('button', { type: 'button', className: `chip${r.mine ? ' mine' : ''}`, onclick: () => react(r.emoji) }, `${r.emoji} ${r.count}`);
         b.setAttribute('aria-pressed', r.mine);
         return b;
       }),
       btn('smile', 'Reaccionar', () => (picker.hidden = !picker.hidden), 'ghost', { iconOnly: true }),
-      ordered.length > 0 && h('button', { type: 'button', className: 'link who-reacted', onclick: safe(showWho) }, 'quiénes'),
+      ordered.length > 0 && h('button', { type: 'button', className: 'who-reacted', onclick: safe(showWho) }, 'quiénes'),
+      ].filter(Boolean), // replaceChildren no descarta los false (h() sí)
     );
   }
   async function showWho() {
@@ -666,6 +667,31 @@ function coverBox(filename, extra = '') {
   return box;
 }
 
+// Editar perfil: tema claro/oscuro (lo aplica js/theme.js; se guarda en este dispositivo).
+function appearanceCard() {
+  const opts = [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']];
+  const bar = h('div', { className: 'tabs', role: 'radiogroup', ariaLabel: 'Tema' });
+  const draw = (sel) =>
+    bar.replaceChildren(
+      ...opts.map(([value, text]) => {
+        const b = h('button', {
+          type: 'button',
+          className: `tab${value === sel ? ' active' : ''}`,
+          onclick: () => {
+            value === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', value);
+            window.applyTheme();
+            draw(value);
+          },
+        }, text);
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', value === sel);
+        return b;
+      }),
+    );
+  draw(localStorage.getItem('theme') ?? 'auto');
+  return h('section', { className: 'card fade-in' }, h('h2', {}, 'Apariencia'), h('p', { className: 'muted small', style: 'margin-bottom:10px' }, 'Automático sigue el modo de tu teléfono.'), bar);
+}
+
 // Editar perfil: nombre, bio y portada.
 function profileInfoCard() {
   const name = h('input', { required: true, maxLength: 64, value: me.display_name });
@@ -871,6 +897,7 @@ function profileScreen() {
       msg,
       h('button', {}, 'Guardar contraseña'),
     ),
+    appearanceCard(),
     notificationsCard(),
     installCard(false),
     btn('logout', 'Cerrar sesión', logout, 'soft danger block'),
