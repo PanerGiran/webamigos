@@ -88,7 +88,7 @@ function toast(text, kind = '') {
   toastEl.textContent = text;
   toastEl.className = `toast show ${kind}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toastEl.className = 'toast'), 2600);
+  toastTimer = setTimeout(() => (toastEl.className = 'toast'), Math.max(2600, text.length * 60)); // los largos, más tiempo para leerlos
 }
 
 // Visor de fotos a pantalla completa (se cierra con un toque o con Esc). En un álbum: flechas, teclado o deslizar.
@@ -951,7 +951,19 @@ async function enablePush() {
   if ((await Notification.requestPermission()) !== 'granted') throw new Error('No se dio permiso para las notificaciones.');
   const { key } = await api('/push/key');
   const reg = await navigator.serviceWorker.ready;
-  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(key) }));
+  let sub = await reg.pushManager.getSubscription();
+  try {
+    sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(key) });
+  } catch (err) {
+    // "Registration failed - push service error": el navegador no pudo hablar con su servicio de avisos.
+    // En Brave viene apagado; en teléfonos sin servicios de Google (ej. Huawei) no existe.
+    if (err.name !== 'AbortError') throw err;
+    throw new Error(
+      navigator.brave
+        ? 'Brave tiene apagados los avisos. Activalos en Configuración → Privacidad y seguridad → "Usar los servicios de Google para mensajes push", cerrá Brave del todo y volvé a probar.'
+        : 'El navegador no pudo conectarse a su servicio de notificaciones. Probá desde Chrome, o fijate que el teléfono tenga los servicios de Google.',
+    );
+  }
   await api('/push/subscribe', { method: 'POST', json: sub.toJSON() });
 }
 

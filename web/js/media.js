@@ -1,4 +1,5 @@
 import { imageUrl } from './api.js';
+import { fixWebm } from './webm.js';
 
 export function renderMedia(media, { onOpenPhoto } = {}) {
   const box = document.createElement('div');
@@ -107,14 +108,16 @@ export function audioRecorder({ onRecorded, onError }) {
         failed = true;
         onError('No se pudo grabar el audio.');
       };
-      active.onstop = () => {
+      active.onstop = async () => {
         reset();
         if (failed || !button.isConnected) return;
         if (!chunks.length) {
           onError('No se grabó ningún audio.');
           return;
         }
-        onRecorded(new File(chunks, `Grabación.${extension}`, { type: active.mimeType || mimeType }));
+        const file = new File(chunks, `Grabación.${extension}`, { type: active.mimeType || mimeType });
+        // El teléfono a veces graba los tiempos con un salto (2 s que figuran como 2:59): se corrige acá.
+        onRecorded(extension === 'webm' ? new File([fixWebm(new Uint8Array(await file.arrayBuffer()))], file.name, { type: file.type }) : file);
       };
       active.start();
       const startedAt = performance.now();
