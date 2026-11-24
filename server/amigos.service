@@ -1,0 +1,19 @@
+# Copiar a /etc/systemd/system/amigos.service y luego:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now amigos
+[Unit]
+Description=Amigos app
+After=network.target mysql.service
+
+[Service]
+User=amigos
+WorkingDirectory=/opt/amigos/server
+EnvironmentFile=/opt/amigos/server/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/amigos
+
+[Install]
+WantedBy=multi-user.target

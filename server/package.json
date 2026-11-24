@@ -1,0 +1,29 @@
+{
+  "name": "amigos-server",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node --env-file-if-exists=.env --test test/*.test.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "create-user": "node --env-file-if-exists=.env scripts/create-user.js",
+    "reset-user": "node --env-file-if-exists=.env scripts/reset-user.js"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "argon2": "^0.45.2",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
+    "helmet": "^8.3.0",
+    "multer": "^2.5.0",
+    "mysql2": "^3.24.6",
+    "sharp": "^0.35.5",
+    "web-push": "^4.0.0",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
+  },
+  "private": "true"
+}
