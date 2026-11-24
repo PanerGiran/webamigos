@@ -385,9 +385,9 @@ a.name { color: inherit; text-decoration: none; }
 .profile-body { padding: 0 16px 20px; }
 .profile-card .avatar-view, .profile-card .profile-body > .avatar { margin-top: -56px; position: relative; }
 .profile-card .avatar { margin-bottom: 12px; }
-.cover { height: 150px; background: var(--accent-soft); }
+.cover { aspect-ratio: 3 / 1; background: var(--accent-soft); }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover.small { height: 90px; border-radius: 12px; overflow: hidden; }
+.cover.small { border-radius: 12px; overflow: hidden; }
 .bio { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 46ch; margin: 10px auto 0 !important; }
 .field { margin-bottom: 12px; }
 .field-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
@@ -484,3 +484,12 @@ a.name { color: inherit; text-decoration: none; }
 .welcome .look-grid { margin-bottom: 8px; }
 .welcome .tabs { margin-bottom: 22px; }
 .subhead { font-size: 0.85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 8px; }
+
+/* --- Editor de encuadre --- */
+.frame-view { position: relative; width: 100%; overflow: hidden; background: var(--field); border-radius: var(--radius); touch-action: none; cursor: grab; user-select: none; }
+.frame-view:active { cursor: grabbing; }
+.frame-view.round { width: min(100%, 280px); margin: 0 auto; border-radius: 50%; }
+.frame-view img { position: absolute; top: 0; left: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
+.zoom { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
+.zoom input { flex: 1; padding: 0; accent-color: var(--accent); }
+.frame-actions { justify-content: flex-end; margin-top: 12px; }

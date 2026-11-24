@@ -83,6 +83,46 @@ test('foto de perfil y portada: los GIF animados siguen animados', async () => {
   assert.equal((await anim(still)).pages ?? 1, 1);
 });
 
+test('encuadre elegido: foto y portada muestran la zona que se eligió (también en GIF)', async () => {
+  const u = await makeUser();
+  // 400x200: mitad izquierda roja, mitad derecha azul.
+  const half = await sharp({ create: { width: 400, height: 200, channels: 3, background: '#f00' } })
+    .composite([{ input: { create: { width: 200, height: 200, channels: 3, background: '#00f' } }, left: 200, top: 0 }])
+    .png()
+    .toBuffer();
+  const send = (path, img, crop, type = 'image/png') => {
+    const form = new FormData();
+    form.append('image', new Blob([img], { type }), 'f');
+    if (crop !== undefined) form.append('crop', typeof crop === 'string' ? crop : JSON.stringify(crop));
+    return fetch(`${base}${path}`, { method: 'PUT', headers: auth(u), body: form });
+  };
+  const centerColor = async (f) => {
+    const img = sharp(Buffer.from(await (await media(u, f)).arrayBuffer()));
+    const { width, height } = await img.metadata();
+    const [r, g, b] = await img.extract({ left: Math.floor(width / 2), top: Math.floor(height / 2), width: 1, height: 1 }).raw().toBuffer();
+    return r > 200 && b < 60 ? 'rojo' : b > 200 && r < 60 ? 'azul' : `otro(${r},${g},${b})`;
+  };
+
+  const { avatar } = await (await send('/me/avatar', half, { left: 200, top: 0, width: 200, height: 200 })).json();
+  assert.equal(await centerColor(avatar), 'azul', 'eligió la mitad derecha');
+  const { cover } = await (await send('/me/cover', half, { left: 0, top: 50, width: 300, height: 100 })).json();
+  assert.equal(await centerColor(cover), 'rojo', 'eligió una franja de la izquierda');
+  const m = await sharp(Buffer.from(await (await media(u, cover)).arrayBuffer())).metadata();
+  assert.deepEqual([m.width, m.height], [1500, 500]);
+
+  // Un encuadre que se pasa del borde se ajusta en vez de fallar; uno mal formado se rechaza.
+  assert.equal((await send('/me/avatar', half, { left: 350, top: 150, width: 999, height: 999 })).status, 200);
+  assert.equal((await send('/me/avatar', half, '{no es json')).status, 400);
+  assert.equal((await send('/me/cover', half, { left: -5, top: 0, width: 10, height: 10 })).status, 400);
+
+  // GIF animado con encuadre: sigue animado.
+  const frame = (c) => sharp({ create: { width: 400, height: 200, channels: 3, background: c } }).png().toBuffer();
+  const gif = await sharp(await Promise.all(['#e33', '#3e3', '#33e'].map(frame)), { join: { animated: true } }).gif().toBuffer();
+  const animAvatar = (await (await send('/me/avatar', gif, { left: 100, top: 0, width: 200, height: 200 }, 'image/gif')).json()).avatar;
+  const am = await sharp(Buffer.from(await (await media(u, animAvatar)).arrayBuffer()), { animated: true }).metadata();
+  assert.deepEqual([am.pages, am.width, am.pageHeight], [3, 256, 256]);
+});
+
 test('foto de perfil: rechaza lo que no es imagen y pide sesión', async () => {
   const u = await makeUser();
   assert.equal((await putAvatar(u, Buffer.from('no soy una foto'), 'image/png')).status, 400);

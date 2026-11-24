@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { createSession, hashPassword, requireAuth, sha256, verifyPassword } from '../auth.js';
-import { removeFile, saveImage, upload, uploadLimit } from '../images.js';
+import { parseCrop, removeFile, saveImage, upload, uploadLimit } from '../images.js';
 
 const router = Router();
 export default router;
@@ -92,7 +92,9 @@ async function dropAvatar(userId) {
 
 // Se guardan dos versiones: 256x256 recortada para los avatares y la completa para verla en grande.
 router.put('/me/avatar', requireAuth, uploadLimit, upload.single('image'), async (req, res) => {
-  const small = req.file && (await saveImage(req.file.buffer, req.user.id, { avatar: true }).catch(() => null));
+  const crop = parseCrop(req.body?.crop); // encuadre elegido en el editor (opcional)
+  if (crop === null) return res.status(400).json({ error: 'Encuadre inválido.' });
+  const small = req.file && (await saveImage(req.file.buffer, req.user.id, { avatar: true, crop }).catch(() => null));
   if (!small) return res.status(400).json({ error: 'Imagen inválida (JPEG, PNG, WebP o GIF).' });
   const full = await saveImage(req.file.buffer, req.user.id);
   await dropAvatar(req.user.id);
@@ -127,7 +129,9 @@ async function dropCover(userId) {
 }
 
 router.put('/me/cover', requireAuth, uploadLimit, upload.single('image'), async (req, res) => {
-  const img = req.file && (await saveImage(req.file.buffer, req.user.id, { cover: true }).catch(() => null));
+  const crop = parseCrop(req.body?.crop);
+  if (crop === null) return res.status(400).json({ error: 'Encuadre inválido.' });
+  const img = req.file && (await saveImage(req.file.buffer, req.user.id, { cover: true, crop }).catch(() => null));
   if (!img) return res.status(400).json({ error: 'Imagen inválida (JPEG, PNG, WebP o GIF).' });
   await dropCover(req.user.id);
   await pool.execute('UPDATE users SET cover = ? WHERE id = ?', [img.filename, req.user.id]);

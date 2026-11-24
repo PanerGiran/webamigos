@@ -877,6 +877,92 @@ function pushNudge() {
   return card;
 }
 
+// Editor de encuadre: arrastrar mueve la imagen y la barra (o la rueda) acerca. Nunca deja bordes vacíos.
+// Devuelve la zona elegida en píxeles de la imagen original ({ left, top, width, height }) o null si se cancela.
+// El recorte lo hace el servidor: así no se pierde calidad y los GIF siguen animados.
+function frameImage(file, { aspect, round = false, title }) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = h('img', { alt: '', draggable: false });
+    const view = h('div', { className: `frame-view${round ? ' round' : ''}` }, img);
+    view.style.aspectRatio = String(aspect);
+    const zoom = h('input', { type: 'range', min: 1, max: 4, step: 0.01, value: 1, ariaLabel: 'Acercar o alejar' });
+    let W, H, Vw, Vh, base, tx, ty, last;
+    const scale = () => base * Number(zoom.value);
+    function paint() {
+      const S = scale();
+      tx = Math.min(0, Math.max(Vw - W * S, tx));
+      ty = Math.min(0, Math.max(Vh - H * S, ty));
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${S})`;
+    }
+    img.onload = () => {
+      [W, H, Vw, Vh] = [img.naturalWidth, img.naturalHeight, view.clientWidth, view.clientHeight];
+      Object.assign(img.style, { width: `${W}px`, height: `${H}px` });
+      base = last = Math.max(Vw / W, Vh / H); // la imagen cubre todo el marco
+      tx = (Vw - W * base) / 2;
+      ty = (Vh - H * base) / 2;
+      paint();
+    };
+    // Acercar sobre el centro del marco.
+    zoom.oninput = () => {
+      const cx = (Vw / 2 - tx) / last;
+      const cy = (Vh / 2 - ty) / last;
+      last = scale();
+      tx = Vw / 2 - cx * last;
+      ty = Vh / 2 - cy * last;
+      paint();
+    };
+    let drag = null;
+    view.onpointerdown = (e) => {
+      drag = { x: e.clientX - tx, y: e.clientY - ty };
+      view.setPointerCapture(e.pointerId);
+    };
+    view.onpointermove = (e) => {
+      if (!drag) return;
+      tx = e.clientX - drag.x;
+      ty = e.clientY - drag.y;
+      paint();
+    };
+    view.onpointerup = view.onpointercancel = () => (drag = null);
+    view.onwheel = (e) => {
+      e.preventDefault();
+      zoom.value = Math.min(4, Math.max(1, Number(zoom.value) - e.deltaY * 0.002));
+      zoom.oninput();
+    };
+
+    const dlg = h('dialog', { className: 'sheet frame-dialog' });
+    const done = (value) => {
+      dlg.close();
+      dlg.remove();
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    img.onerror = () => {
+      done(null);
+      toast('No se pudo abrir esa imagen.', 'error');
+    };
+    dlg.oncancel = (e) => (e.preventDefault(), done(null)); // Esc
+    const save = () => {
+      const S = scale();
+      done({ left: Math.round(-tx / S), top: Math.round(-ty / S), width: Math.round(Vw / S), height: Math.round(Vh / S) });
+    };
+    dlg.append(
+      h('div', { className: 'sheet-head' }, h('h2', {}, title)),
+      h(
+        'div',
+        { className: 'sheet-body' },
+        view,
+        h('div', { className: 'zoom' }, h('span', { className: 'muted small' }, '−'), zoom, h('span', { className: 'muted small' }, '+')),
+        h('p', { className: 'muted small' }, 'Arrastrá la imagen para moverla y usá la barra para acercar.'),
+        h('div', { className: 'row frame-actions' }, h('button', { type: 'button', className: 'ghost', onclick: () => done(null) }, 'Cancelar'), h('button', { type: 'button', className: 'primary', onclick: save }, 'Usar este encuadre')),
+      ),
+    );
+    document.body.append(dlg);
+    dlg.showModal();
+    img.src = url; // después de mostrar el diálogo, así el marco ya tiene tamaño al medir
+  });
+}
+
 // Franja de portada: la foto si hay, si no el degradado de la marca.
 function coverBox(filename, extra = '') {
   const box = h('div', { className: `cover ${extra}` });
@@ -1003,8 +1089,11 @@ function profileInfoCard() {
     coverFile.value = '';
     if (!f) return;
     if (f.size > MAX_IMAGE) throw new Error('La imagen pasa los 5 MB.');
+    const crop = await frameImage(f, { aspect: 3, title: 'Encuadrá la portada' });
+    if (!crop) return;
     const form = new FormData();
     form.append('image', f);
+    form.append('crop', JSON.stringify(crop));
     toast('Subiendo portada…');
     cover = (await api('/me/cover', { method: 'PUT', form })).cover;
     drawCover();
@@ -1165,8 +1254,11 @@ function profileScreen() {
     photo.value = '';
     if (!f) return;
     if (f.size > MAX_IMAGE) throw new Error('La imagen pasa los 5 MB.');
+    const crop = await frameImage(f, { aspect: 1, round: true, title: 'Encuadrá tu foto' });
+    if (!crop) return;
     const form = new FormData();
     form.append('image', f);
+    form.append('crop', JSON.stringify(crop));
     toast('Subiendo foto…');
     Object.assign(me, await api('/me/avatar', { method: 'PUT', form }));
     toast('Foto actualizada');

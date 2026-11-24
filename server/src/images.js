@@ -35,9 +35,22 @@ const MAX_FRAMES_PROFILE = 60; // foto y portada se agrandan al recortar: cada c
 // Portada animada más chica que la fija: son muchos cuadros en memoria a la vez.
 const ANIM_COVER_SIZE = { width: 900, height: 300, fit: 'cover', position: 'centre' };
 
+// Encuadre elegido por la persona: { left, top, width, height } en píxeles de la imagen original (ya enderezada).
+// Devuelve undefined si no vino, null si vino mal (la ruta responde 400).
+export function parseCrop(raw) {
+  if (raw === undefined || raw === '') return undefined;
+  try {
+    const c = JSON.parse(raw);
+    const ok = ['left', 'top', 'width', 'height'].every((k) => Number.isInteger(c?.[k]) && c[k] >= 0 && c[k] < 100_000);
+    return ok && c.width > 0 && c.height > 0 ? { left: c.left, top: c.top, width: c.width, height: c.height } : null;
+  } catch {
+    return null;
+  }
+}
+
 // Revisa el formato real (no el que dice el cliente), endereza según EXIF y guarda WebP sin metadatos (se va el GPS).
 // Devuelve { id, filename } o null si no es una imagen válida.
-export async function saveImage(buffer, userId, { avatar = false, cover = false } = {}) {
+export async function saveImage(buffer, userId, { avatar = false, cover = false, crop } = {}) {
   const head = await sharp(buffer, { limitInputPixels: MAX_PIXELS }).metadata().catch(() => null);
   if (!head || !['jpeg', 'png', 'webp', 'gif'].includes(head.format)) return null;
   const pages = head.pages ?? 1;
@@ -47,9 +60,18 @@ export async function saveImage(buffer, userId, { avatar = false, cover = false 
   // La detección de lo más llamativo ("attention") no anda con animaciones: ahí se recorta al centro.
   const size = avatar ? AVATAR_SIZE : cover ? COVER_SIZE : POST_SIZE;
   const resize = !animated ? size : cover ? ANIM_COVER_SIZE : avatar ? { ...size, position: 'centre' } : size;
-  const { data, info } = await sharp(buffer, { pages: animated ? frames : 1, limitInputPixels: MAX_PIXELS })
-    .rotate()
-    .resize(resize)
+  // El orden importa: enderezar, después recortar el encuadre elegido, después achicar.
+  const pipeline = sharp(buffer, { pages: animated ? frames : 1, limitInputPixels: MAX_PIXELS }).rotate();
+  if (crop) {
+    // Se ajusta a los bordes reales de la imagen (si viene rotada por EXIF, ancho y alto se invierten).
+    const h = head.pageHeight ?? head.height;
+    const [W, H] = (head.orientation ?? 1) >= 5 ? [h, head.width] : [head.width, h];
+    const left = Math.min(crop.left, W - 1);
+    const top = Math.min(crop.top, H - 1);
+    pipeline.extract({ left, top, width: Math.min(crop.width, W - left), height: Math.min(crop.height, H - top) });
+  }
+  const { data, info } = await pipeline
+    .resize(crop ? { ...resize, position: 'centre' } : resize)
     .webp({ quality: 82 })
     .toBuffer({ resolveWithObject: true });
   const filename = crypto.randomUUID();
