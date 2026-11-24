@@ -1332,7 +1332,9 @@ async function userScreen(username) {
   showTab('profile');
   const page = h('div', { className: 'profile-page' }, profileBackground(user.profile_bg), head, tabBar, content);
   if (user.look) page.dataset.look = user.look;
-  return shell(page);
+  const nodes = shell(page);
+  nodes.look = user.look; // render() la aplica a toda la página (encabezado y scroll incluidos)
+  return nodes;
 }
 
 // --- Perfil ---
@@ -1923,6 +1925,7 @@ function chatPoll(m) {
 async function render() {
   const path = location.pathname;
   if (sheet.open) sheet.close();
+  window.applyTheme(); // vuelve a tu apariencia (el perfil de otro la cambia mientras lo mirás)
   closeMentions();
   liveScreen = null; // la pantalla nueva vuelve a engancharse si quiere eventos
   const invite = path.match(/^\/invite\/([\w-]+)$/);
@@ -1958,7 +1961,13 @@ async function render() {
       nodes = shell(h('section', { className: 'card' }, emptyState('🤷', err.message, 'Puede que la cuenta ya no exista.')));
     }
     // Si mientras cargaba se navegó a otra pantalla, no pisarla.
-    return location.pathname === path && root.replaceChildren(...nodes);
+    if (location.pathname !== path) return;
+    // En el perfil de alguien, toda la página (encabezado, scroll y barra del teléfono) usa su apariencia.
+    if (nodes.look) {
+      document.documentElement.dataset.look = nodes.look;
+      document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    }
+    return root.replaceChildren(...nodes);
   }
   if (path === '/chat') return root.replaceChildren(...chatScreen());
   if (path === '/admin' && me.role === 'admin') return root.replaceChildren(...adminScreen());
