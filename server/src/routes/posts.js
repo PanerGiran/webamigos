@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { pool } from '../db.js';
 import { removeFile, saveImage, UPLOAD_DIR, uploadLimit, uploadPost } from '../images.js';
 import { requireAuth } from '../auth.js';
@@ -36,9 +37,41 @@ export const POST_SELECT = `SELECT p.id, p.body, p.scope, p.created_at, p.edited
 // Le agrega a cada post sus fotos, reacciones y cantidad de comentarios.
 export async function decoratePosts(rows, userId) {
   const ids = rows.map((p) => p.id);
-  const [reactions, counts, images] = await Promise.all([reactionSummary(ids, userId), commentCounts(ids), postImages(ids)]);
-  for (const p of rows) Object.assign(p, { reactions: reactions[p.id], comment_count: counts[p.id] ?? 0, images: images[p.id] ?? [] });
+  const [reactions, counts, images, polls] = await Promise.all([reactionSummary(ids, userId), commentCounts(ids), postImages(ids), pollSummary(ids, userId)]);
+  for (const p of rows) Object.assign(p, { reactions: reactions[p.id], comment_count: counts[p.id] ?? 0, images: images[p.id] ?? [], poll: polls[p.id] ?? null });
   return rows;
+}
+
+// { post_id: { options: [{ id, text, votes }], total, my_vote } } para los posts que tienen encuesta.
+async function pollSummary(ids, userId) {
+  if (!ids.length) return {};
+  const q = ids.map(() => '?').join(',');
+  const [options] = await pool.execute(
+    `SELECT o.id, o.post_id, o.text, COUNT(v.user_id) AS votes, MAX(v.user_id = ?) AS mine
+       FROM poll_options o LEFT JOIN poll_votes v ON v.option_id = o.id
+      WHERE o.post_id IN (${q}) GROUP BY o.id ORDER BY o.post_id, o.position`,
+    [userId, ...ids],
+  );
+  const out = {};
+  for (const o of options) {
+    const poll = (out[o.post_id] ??= { options: [], total: 0, my_vote: null });
+    poll.options.push({ id: o.id, text: o.text, votes: o.votes });
+    poll.total += o.votes;
+    if (o.mine) poll.my_vote = o.id;
+  }
+  return out;
+}
+
+// Opciones de encuesta que vienen como JSON en el formulario: 2 a 6, sin vacías ni repetidas.
+const pollOptions = z.array(z.string().trim().min(1).max(100)).min(2).max(6).refine((a) => new Set(a.map((s) => s.toLowerCase())).size === a.length);
+function parsePoll(raw) {
+  if (raw === undefined || raw === '') return { options: null };
+  try {
+    const r = pollOptions.safeParse(JSON.parse(raw));
+    return r.success ? { options: r.data } : { error: true };
+  } catch {
+    return { error: true };
+  }
 }
 
 async function postImages(ids) {
@@ -57,6 +90,9 @@ router.post('/posts', uploadLimit, uploadPost, async (req, res) => {
   const body = String(req.body?.body ?? '').trim();
   const files = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
   if (body.length > 5000 || (!body && !files.length)) return res.status(400).json({ error: 'El post necesita texto o una foto.' });
+  const poll = parsePoll(req.body?.poll);
+  if (poll.error) return res.status(400).json({ error: 'La encuesta necesita de 2 a 6 opciones distintas (hasta 100 caracteres cada una).' });
+  if (poll.options && !body) return res.status(400).json({ error: 'Escribí la pregunta de la encuesta.' });
   // Se procesan de a una (poca RAM). Si alguna no es imagen, se borran las ya guardadas y no se publica nada.
   const saved = [];
   for (const f of files) {
@@ -70,13 +106,14 @@ router.post('/posts', uploadLimit, uploadPost, async (req, res) => {
   const scope = req.body?.scope === 'profile' ? 'profile' : 'feed'; // profile: solo en el perfil propio
   const [r] = await pool.execute('INSERT INTO posts (user_id, body, media_id, scope) VALUES (?, ?, ?, ?)', [req.user.id, body || null, saved[0]?.id ?? null, scope]);
   for (const [i, img] of saved.entries()) await pool.execute('INSERT INTO post_media (post_id, media_id, position) VALUES (?, ?, ?)', [r.insertId, img.id, i]);
+  for (const [i, text] of (poll.options ?? []).entries()) await pool.execute('INSERT INTO poll_options (post_id, position, text) VALUES (?, ?, ?)', [r.insertId, i, text]);
   // Los mencionados reciben "te mencionó" en lugar del aviso general (nunca los dos).
   const mentioned = await mentionedIds(body, [req.user.id]);
   const url = scope === 'feed' ? '/' : `/u/${req.user.username}`;
   notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: snippet(body), url, tag: `post-${r.insertId}` }, { to: mentioned });
   if (scope === 'feed') {
     const what = saved.length > 1 ? `📷 Subió ${saved.length} fotos` : '📷 Subió una foto';
-    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : what, url, tag: `post-${r.insertId}` }, { except: [req.user.id, ...mentioned] });
+    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? `${poll.options ? '📊 ' : ''}${snippet(body)}` : what, url, tag: `post-${r.insertId}` }, { except: [req.user.id, ...mentioned] });
   }
   res.status(201).json({ id: r.insertId });
 });
@@ -94,9 +131,49 @@ router.patch('/posts/:id', async (req, res) => {
   if (!post) return res.status(404).json({ error: 'no existe' });
   if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Solo el autor puede editarlo.' });
   if (!body && !post.media_id) return res.status(400).json({ error: 'El post necesita texto o una imagen.' });
+  const [[hasPoll]] = await pool.execute('SELECT 1 AS x FROM poll_options WHERE post_id = ? LIMIT 1', [post.id]);
+  if (!body && hasPoll) return res.status(400).json({ error: 'La encuesta necesita su pregunta.' });
   await pool.execute('UPDATE posts SET body = ?, edited_at = NOW() WHERE id = ?', [body || null, post.id]);
   const [[row]] = await pool.execute('SELECT body, edited_at FROM posts WHERE id = ?', [post.id]);
   res.json(row);
+});
+
+// Votar (option_id) o sacar el voto (option_id: null). Un voto por persona; votar otra opción lo cambia.
+router.put('/posts/:id/vote', async (req, res) => {
+  const optionId = req.body?.option_id;
+  if (optionId !== null && !Number.isInteger(optionId)) return res.status(400).json({ error: 'voto inválido' });
+  const [[post]] = await pool.execute('SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!post) return res.status(404).json({ error: 'no existe' });
+  if (optionId === null) {
+    await pool.execute('DELETE FROM poll_votes WHERE post_id = ? AND user_id = ?', [post.id, req.user.id]);
+  } else {
+    const [[opt]] = await pool.execute('SELECT id FROM poll_options WHERE id = ? AND post_id = ?', [optionId, post.id]);
+    if (!opt) return res.status(400).json({ error: 'Esa opción no es de esta encuesta.' });
+    await pool.execute(
+      'INSERT INTO poll_votes (post_id, user_id, option_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE option_id = VALUES(option_id)',
+      [post.id, req.user.id, opt.id],
+    );
+  }
+  res.json({ poll: (await pollSummary([post.id], req.user.id))[post.id] ?? null });
+});
+
+// Quiénes votaron cada opción.
+router.get('/posts/:id/votes', async (req, res) => {
+  const [[post]] = await pool.execute('SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!post) return res.status(404).json({ error: 'no existe' });
+  const [rows] = await pool.execute(
+    `SELECT o.id AS option_id, o.text, u.id, u.username, u.display_name, u.avatar
+       FROM poll_options o LEFT JOIN poll_votes v ON v.option_id = o.id LEFT JOIN users u ON u.id = v.user_id AND u.deleted_at IS NULL
+      WHERE o.post_id = ? ORDER BY o.position, u.display_name`,
+    [post.id],
+  );
+  const options = [];
+  for (const r of rows) {
+    let o = options.at(-1);
+    if (o?.id !== r.option_id) options.push((o = { id: r.option_id, text: r.text, users: [] }));
+    if (r.id) o.users.push({ id: r.id, username: r.username, display_name: r.display_name, avatar: r.avatar });
+  }
+  res.json({ options });
 });
 
 router.delete('/posts/:id', async (req, res) => {

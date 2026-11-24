@@ -272,13 +272,42 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
     msg.textContent = tooBig ? `${tooBig === 1 ? 'Una foto pasa' : `${tooBig} fotos pasan`} los 5 MB.` : ok.length > room ? `Máximo ${MAX_PHOTOS} fotos por post.` : '';
     drawPreviews();
   };
+  // Encuesta: el texto del post es la pregunta; de 2 a 6 opciones.
+  let pollOn = false;
+  const pollBox = h('div', { className: 'poll-editor', hidden: true });
+  const optionInput = () => withMentions(h('input', { maxLength: 100, placeholder: 'Opción' }));
+  let optionInputs = [];
+  function drawPoll() {
+    pollBox.replaceChildren(
+      h('div', { className: 'poll-editor-head' }, h('strong', {}, '📊 Encuesta'), btn('x', 'Quitar encuesta', () => togglePoll(false), 'ghost', { iconOnly: true })),
+      ...optionInputs.map((inp, i) =>
+        h('div', { className: 'poll-option-row' }, inp, optionInputs.length > 2 && btn('x', 'Quitar opción', () => (optionInputs.splice(i, 1), drawPoll()), 'ghost', { iconOnly: true })),
+      ),
+      ...[optionInputs.length < 6 && h('button', { type: 'button', className: 'ghost sm', onclick: () => (optionInputs.push(optionInput()), drawPoll(), optionInputs.at(-1).focus()) }, '+ Agregar opción')].filter(Boolean),
+    );
+  }
+  function togglePoll(on) {
+    pollOn = on;
+    optionInputs = on ? [optionInput(), optionInput()] : [];
+    pollBox.hidden = !on;
+    text.placeholder = on ? 'Escribí la pregunta…' : placeholder;
+    if (on) {
+      drawPoll();
+      text.focus();
+    }
+  }
+
   return h(
     'form',
     {
       className: 'card composer',
       onsubmit: onSubmit(msg, async () => {
         if (!text.value.trim() && !photos.length) throw new Error('Escribí algo o elegí una foto.');
+        const options = optionInputs.map((i) => i.value.trim()).filter(Boolean);
+        if (pollOn && !text.value.trim()) throw new Error('Escribí la pregunta de la encuesta.');
+        if (pollOn && options.length < 2) throw new Error('La encuesta necesita al menos 2 opciones.');
         const form = new FormData();
+        if (pollOn) form.append('poll', JSON.stringify(options));
         form.append('body', text.value);
         form.append('scope', scope);
         for (const ph of photos) form.append('images', ph.file);
@@ -286,14 +315,22 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
         text.value = '';
         text.style.height = '';
         clear();
+        togglePoll(false);
         toast('¡Publicado!');
         onPosted();
       }),
     },
     h('div', { className: 'composer-top' }, avatar(me), text),
     preview,
+    pollBox,
     msg,
-    h('div', { className: 'composer-bar' }, btn('image', 'Foto', () => file.click(), 'ghost'), file, h('button', { className: 'primary' }, icon('send'), 'Publicar')),
+    h(
+      'div',
+      { className: 'composer-bar' },
+      h('div', { className: 'composer-tools' }, btn('image', 'Foto', () => file.click(), 'ghost'), btn('poll', 'Encuesta', () => togglePoll(!pollOn), 'ghost')),
+      file,
+      h('button', { className: 'primary' }, icon('send'), 'Publicar'),
+    ),
   );
 }
 
@@ -426,6 +463,50 @@ function gallery(images, alt) {
   );
 }
 
+// Encuesta de un post: tocar una opción vota (o saca el voto si ya era la tuya). Siempre muestra resultados.
+function pollBlock(p) {
+  const box = h('div', { className: 'poll' });
+  const vote = safe(async (optionId) => {
+    const r = await api(`/posts/${p.id}/vote`, { method: 'PUT', json: { option_id: p.poll.my_vote === optionId ? null : optionId } });
+    p.poll = r.poll;
+    draw();
+  });
+  async function showVoters() {
+    const { options } = await api(`/posts/${p.id}/votes`);
+    openSheet(
+      'Votos',
+      ...options.map((o) =>
+        h(
+          'div',
+          { className: 'react-group' },
+          h('div', { className: 'react-emoji' }, h('span', {}, o.text), h('span', { className: 'muted small' }, String(o.users.length))),
+          ...(o.users.length ? o.users.map((u) => profileLink(u, { className: 'person' }, avatar(u, 'sm'), h('span', {}, u.display_name))) : [h('p', { className: 'muted small' }, 'Nadie todavía')]),
+        ),
+      ),
+    );
+  }
+  function draw() {
+    const { options, total, my_vote } = p.poll;
+    box.replaceChildren(
+      ...options.map((o) => {
+        const pct = total ? Math.round((o.votes / total) * 100) : 0;
+        const b = h(
+          'button',
+          { type: 'button', className: `poll-option${o.id === my_vote ? ' mine' : ''}`, onclick: () => vote(o.id) },
+          h('span', { className: 'poll-text' }, o.id === my_vote && icon('check'), o.text),
+          h('span', { className: 'poll-pct' }, `${pct}%`),
+        );
+        b.style.setProperty('--pct', `${pct}%`);
+        b.setAttribute('aria-pressed', o.id === my_vote);
+        return b;
+      }),
+      h('div', { className: 'poll-foot muted small' }, `${total} voto${total === 1 ? '' : 's'}`, total > 0 && h('button', { type: 'button', className: 'who-reacted', onclick: safe(showVoters) }, 'quiénes votaron')),
+    );
+  }
+  draw();
+  return box;
+}
+
 function postCard(p) {
   const date = new Date(p.created_at);
   const who = h('div', { className: 'who' }, h('strong', {}, p.display_name), h('time', { dateTime: p.created_at, title: fmt.format(date) }, timeAgo(date)), p.edited_at && editedTag());
@@ -458,6 +539,7 @@ function postCard(p) {
       }), 'ghost danger', { iconOnly: true }),
     );
   }
+  if (p.poll) card.append(pollBlock(p));
   const images = p.images?.length ? p.images : p.filename ? [{ filename: p.filename, width: p.width, height: p.height }] : [];
   if (images.length) card.append(gallery(images, p.body ? '' : `Foto de ${p.display_name}`));
   card.append(...postFooter(p));
