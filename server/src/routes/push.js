@@ -13,7 +13,7 @@ const subscription = z.object({
   endpoint: z.string().url().startsWith('https://').max(500),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(50) }),
 });
-const prefsBody = z.object({ posts: z.boolean(), comments: z.boolean(), chat: z.boolean() }).partial();
+const prefsBody = z.object({ posts: z.boolean(), comments: z.boolean(), chat: z.boolean(), mentions: z.boolean() }).partial();
 
 router.get('/push/key', (req, res) => {
   const key = publicKey();
@@ -40,8 +40,8 @@ router.delete('/push/subscribe', async (req, res) => {
 });
 
 router.get('/me/notifications', async (req, res) => {
-  const [[u]] = await pool.execute('SELECT notify_posts, notify_comments, notify_chat FROM users WHERE id = ?', [req.user.id]);
-  res.json({ posts: !!u.notify_posts, comments: !!u.notify_comments, chat: !!u.notify_chat });
+  const [[u]] = await pool.execute('SELECT notify_posts, notify_comments, notify_chat, notify_mentions FROM users WHERE id = ?', [req.user.id]);
+  res.json({ posts: !!u.notify_posts, comments: !!u.notify_comments, chat: !!u.notify_chat, mentions: !!u.notify_mentions });
 });
 
 router.patch('/me/notifications', async (req, res) => {

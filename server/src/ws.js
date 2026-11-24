@@ -2,7 +2,7 @@
 import { WebSocketServer } from 'ws';
 import { pool } from './db.js';
 import { sessionFromToken } from './auth.js';
-import { notifyLater, snippet } from './push.js';
+import { mentionedIds, notifyLater, snippet } from './push.js';
 import { EMOJIS, messageReactions, quote } from './routes/social.js';
 
 const AUTH_TIMEOUT = 5000;
@@ -73,8 +73,12 @@ export function attachChat(server) {
       message: { id: r.insertId, body, created_at: new Date().toISOString(), user_id: id, username, display_name, avatar, reply: quote(replied), reactions: [] },
     });
     // Aviso solo a quien no tiene el chat abierto. Con el mismo tag, los mensajes seguidos se juntan en un aviso.
+    // A quien lo mencionan le llega "te mencionó" en lugar del aviso general del chat.
     const online = authed().map((c) => c.user.id);
-    notifyLater('chat', { title: `${display_name} en el chat`, body: snippet(body), url: '/chat', tag: 'chat' }, { except: [...new Set([id, ...online])] });
+    const skip = [...new Set([id, ...online])];
+    const mentioned = await mentionedIds(body, skip);
+    notifyLater('mentions', { title: `${display_name} te mencionó en el chat`, body: snippet(body), url: '/chat', tag: 'chat-mention' }, { to: mentioned });
+    notifyLater('chat', { title: `${display_name} en el chat`, body: snippet(body), url: '/chat', tag: 'chat' }, { except: [...skip, ...mentioned] });
   }
 
   function onConnection(ws) {

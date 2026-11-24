@@ -4,7 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
-import { notifyLater, snippet } from '../push.js';
+import { mentionedIds, notifyLater, snippet } from '../push.js';
 
 const router = Router();
 export default router;
@@ -64,13 +64,14 @@ router.post('/posts/:id/comments', commentLimit, async (req, res) => {
   if (!post) return res.status(404).json({ error: 'no existe' });
   const [ins] = await pool.execute('INSERT INTO comments (post_id, user_id, body) VALUES (?, ?, ?)', [post.id, req.user.id, r.data.body]);
   const [[comment]] = await pool.execute(`${COMMENT_SELECT} WHERE c.id = ?`, [ins.insertId]);
-  if (post.user_id !== req.user.id) {
-    notifyLater(
-      'comments',
-      { title: `${req.user.display_name} comentó tu post`, body: snippet(r.data.body), url: post.scope === 'profile' ? `/u/${post.username}` : '/', tag: `comments-${post.id}` },
-      { to: [post.user_id] },
-    );
+  const url = post.scope === 'profile' ? `/u/${post.username}` : '/';
+  const toOwner = post.user_id !== req.user.id;
+  if (toOwner) {
+    notifyLater('comments', { title: `${req.user.display_name} comentó tu post`, body: snippet(r.data.body), url, tag: `comments-${post.id}` }, { to: [post.user_id] });
   }
+  // Al dueño del post ya le llegó "comentó tu post": no se le manda también "te mencionó".
+  const mentioned = await mentionedIds(r.data.body, [req.user.id, ...(toOwner ? [post.user_id] : [])]);
+  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: snippet(r.data.body), url, tag: `comments-${post.id}` }, { to: mentioned });
   res.status(201).json({ comment });
 });
 
@@ -160,6 +161,12 @@ router.get('/messages', async (req, res) => {
     reactions: reactions[m.id],
   }));
   res.json({ messages, more: rows.length === CHAT_PAGE });
+});
+
+// Todas las cuentas activas (para sugerir @menciones).
+router.get('/users', async (req, res) => {
+  const [users] = await pool.execute('SELECT id, username, display_name, avatar FROM users WHERE is_active = 1 AND deleted_at IS NULL ORDER BY display_name');
+  res.json({ users });
 });
 
 // Perfil público de alguien (las cuentas eliminadas no tienen perfil).

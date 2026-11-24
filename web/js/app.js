@@ -235,7 +235,7 @@ function loginScreen() {
 // scope 'profile': el post queda solo en el perfil propio (no sale en el feed global).
 function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${me.display_name.split(' ')[0]}?` } = {}) {
   const msg = errorBox();
-  const text = h('textarea', { maxLength: 5000, rows: 1, placeholder });
+  const text = withMentions(h('textarea', { maxLength: 5000, rows: 1, placeholder }));
   // El cuadro crece con el texto.
   text.oninput = () => {
     text.style.height = 'auto';
@@ -297,13 +297,93 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
   );
 }
 
-// Texto escrito por usuarios. Por ahora texto plano; las menciones lo convierten en links.
-const richText = (s) => [s ?? ''];
+// Texto escrito por usuarios: queda como texto plano, salvo los @usuario, que pasan a ser links al perfil.
+const MENTION = /(?<![\w@])@([a-z0-9_]{3,32})/gi;
+function richText(s) {
+  const out = [];
+  let last = 0;
+  for (const m of (s ?? '').matchAll(MENTION)) {
+    out.push(s.slice(last, m.index), link(`/u/${m[1].toLowerCase()}`, { className: 'mention' }, m[0]));
+    last = m.index + m[0].length;
+  }
+  out.push((s ?? '').slice(last));
+  return out.filter((x) => x !== '');
+}
+
+// --- Sugerencias de @menciones (una sola caja para toda la app) ---
+
+let usersPromise = null;
+const loadUsers = () => (usersPromise ??= api('/users').then((r) => r.users).catch(() => ((usersPromise = null), [])));
+const mentionBox = h('div', { className: 'mention-box', hidden: true, role: 'listbox' });
+document.body.append(mentionBox);
+let mention = null; // { input, start, items, index }
+
+function closeMentions() {
+  mention = null;
+  mentionBox.hidden = true;
+}
+function pickMention(u) {
+  const { input, start } = mention;
+  const end = input.selectionStart;
+  input.value = `${input.value.slice(0, start)}@${u.username} ${input.value.slice(end)}`;
+  const caret = start + u.username.length + 2;
+  input.setSelectionRange(caret, caret);
+  closeMentions();
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+}
+function drawMentions() {
+  const r = mention.input.getBoundingClientRect();
+  const above = r.bottom + 230 > innerHeight; // el cuadro del chat está abajo: la lista va arriba
+  Object.assign(mentionBox.style, {
+    left: `${Math.max(8, r.left)}px`,
+    width: `${Math.min(r.width, 320)}px`,
+    top: above ? 'auto' : `${r.bottom + 4}px`,
+    bottom: above ? `${innerHeight - r.top + 4}px` : 'auto',
+  });
+  mentionBox.replaceChildren(
+    ...mention.items.map((u, i) =>
+      h('button', {
+        type: 'button',
+        className: `mention-item${i === mention.index ? ' active' : ''}`,
+        onmousedown: (e) => (e.preventDefault(), pickMention(u)), // mousedown: antes de que el cuadro pierda el foco
+      }, avatar(u, 'xs'), h('span', {}, u.display_name), h('span', { className: 'muted small' }, `@${u.username}`)),
+    ),
+  );
+  mentionBox.hidden = false;
+}
+async function updateMentions(input) {
+  const m = input.value.slice(0, input.selectionStart).match(/(?:^|[^\w@])@([a-z0-9_]{0,32})$/i);
+  if (!m) return closeMentions();
+  const q = m[1].toLowerCase();
+  const items = (await loadUsers()).filter((u) => u.id !== me.id && (u.username.startsWith(q) || u.display_name.toLowerCase().includes(q))).slice(0, 5);
+  if (!items.length || document.activeElement !== input) return closeMentions();
+  mention = { input, start: input.selectionStart - m[1].length - 1, items, index: 0 };
+  drawMentions();
+}
+// Engancha las sugerencias a un cuadro de texto. Hay que llamarlo antes de asignarle su propio onkeydown.
+function withMentions(input) {
+  input.addEventListener('input', () => updateMentions(input));
+  input.addEventListener('keydown', (e) => {
+    if (!mention || mention.input !== input) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      mention.index = (mention.index + (e.key === 'ArrowDown' ? 1 : -1) + mention.items.length) % mention.items.length;
+      drawMentions();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation(); // que Enter elija a la persona en vez de mandar el mensaje
+      pickMention(mention.items[mention.index]);
+    } else if (e.key === 'Escape') closeMentions();
+  });
+  input.addEventListener('blur', () => setTimeout(() => mention?.input === input && closeMentions(), 150));
+  return input;
+}
 const editedTag = () => h('span', { className: 'edited', title: 'Editado' }, ' · editado');
 
 // Editor en el lugar: cambia `el` por un cuadro de texto; al guardar llama a save(texto) y vuelve a mostrar `el`.
 function editInPlace(el, current, { maxLength, save }) {
-  const input = h('textarea', { value: current, maxLength, rows: 3 });
+  const input = withMentions(h('textarea', { value: current, maxLength, rows: 3 }));
   const msg = errorBox();
   const back = () => form.replaceWith(el);
   const form = h(
@@ -432,7 +512,7 @@ function postFooter(p) {
   const countLabel = h('span', {}, String(count));
   const setCount = (n) => (countLabel.textContent = String((count = n)));
   const list = h('div', { className: 'comment-list' });
-  const input = h('input', { maxLength: 1000, placeholder: 'Escribí un comentario…', required: true, autocomplete: 'off' });
+  const input = withMentions(h('input', { maxLength: 1000, placeholder: 'Escribí un comentario…', required: true, autocomplete: 'off' }));
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Comentar' }, icon('send'));
   const section = h(
     'div',
@@ -677,6 +757,7 @@ function notificationsCard() {
       toggle('posts', 'Posts nuevos en el feed'),
       toggle('comments', 'Comentarios en mis posts'),
       toggle('chat', 'Mensajes del chat (si no lo tengo abierto)'),
+      toggle('mentions', 'Cuando me mencionan con @'),
       btn('bell-off', 'Desactivar en este dispositivo', safe(async () => {
         await disablePush();
         toast('Notificaciones desactivadas');
@@ -744,7 +825,7 @@ function appearanceCard() {
 // Editar perfil: nombre, bio y portada.
 function profileInfoCard() {
   const name = h('input', { required: true, maxLength: 64, value: me.display_name });
-  const bio = h('textarea', { maxLength: 300, rows: 3, placeholder: 'Contá algo de vos (opcional)' });
+  const bio = withMentions(h('textarea', { maxLength: 300, rows: 3, placeholder: 'Contá algo de vos (opcional)' }));
   const count = h('span', { className: 'muted small counter' }, '0/300');
   bio.oninput = () => (count.textContent = `${bio.value.length}/300`);
   const msg = errorBox();
@@ -1115,7 +1196,7 @@ function chatScreen() {
   const list = h('div', { className: 'chat-list' });
   const status = h('span', { className: 'muted small' }, 'Conectando…');
   const online = h('div', { className: 'online' });
-  const input = h('textarea', { rows: 1, maxLength: 2000, placeholder: 'Escribí un mensaje…' });
+  const input = withMentions(h('textarea', { rows: 1, maxLength: 2000, placeholder: 'Escribí un mensaje…' }));
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Enviar', disabled: true }, icon('send'));
   const olderBtn = h('button', { type: 'button', className: 'soft sm older' }, 'Ver mensajes anteriores');
 
@@ -1303,6 +1384,7 @@ function chatScreen() {
 async function render() {
   const path = location.pathname;
   if (sheet.open) sheet.close();
+  closeMentions();
   if (chatSocket && path !== '/chat') {
     const ws = chatSocket;
     chatSocket = null;

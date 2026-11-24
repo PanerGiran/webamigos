@@ -17,7 +17,8 @@ CREATE TABLE users (
   notify_comments TINYINT(1) NOT NULL DEFAULT 1,
   notify_chat TINYINT(1) NOT NULL DEFAULT 1,
   bio VARCHAR(300) NULL,                      -- texto corto del perfil
-  cover CHAR(36) NULL                         -- foto de portada (archivo en uploads)
+  cover CHAR(36) NULL,                        -- foto de portada (archivo en uploads)
+  notify_mentions TINYINT(1) NOT NULL DEFAULT 1
 );
 
 CREATE TABLE invites (

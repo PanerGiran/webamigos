@@ -16,7 +16,20 @@ export const publicKey = () => (ready() ? process.env.VAPID_PUBLIC_KEY : null);
 // Los tests lo reemplazan para no mandar nada de verdad.
 export const transport = { send: (sub, payload) => webpush.sendNotification(sub, payload, { TTL: 6 * 3600 }) };
 
-const PREF = { posts: 'notify_posts', comments: 'notify_comments', chat: 'notify_chat' };
+const PREF = { posts: 'notify_posts', comments: 'notify_comments', chat: 'notify_chat', mentions: 'notify_mentions' };
+
+// @usuario en un texto (no en direcciones de mail): ids de cuentas activas mencionadas que quieren ese aviso, sin `exclude`.
+// Quien lo tiene apagado no sale en la lista, así le llega el aviso general en lugar de ninguno.
+const MENTION = /(?<![\w@])@([a-z0-9_]{3,32})/gi;
+export async function mentionedIds(text, exclude = []) {
+  const names = [...new Set([...(text ?? '').matchAll(MENTION)].map((m) => m[1].toLowerCase()))].slice(0, 20);
+  if (!names.length) return [];
+  const [rows] = await pool.execute(
+    `SELECT id FROM users WHERE is_active = 1 AND deleted_at IS NULL AND notify_mentions = 1 AND username IN (${names.map(() => '?').join(',')})`,
+    names,
+  );
+  return rows.map((r) => r.id).filter((id) => !exclude.includes(id));
+}
 export const snippet = (s, n = 120) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // Manda `payload` ({ title, body, url, tag }) a los dispositivos de `to` (o de todos), menos `except`,

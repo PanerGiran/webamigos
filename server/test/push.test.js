@@ -69,7 +69,7 @@ test('push: posts del feed, comentarios, preferencias y sesión cerrada', async 
 
   // Preferencias: caro apaga los posts.
   assert.equal((await call(caro, '/me/notifications', { method: 'PATCH', json: { posts: false } })).status, 204);
-  assert.deepEqual(await (await call(caro, '/me/notifications')).json(), { posts: false, comments: true, chat: true });
+  assert.deepEqual(await (await call(caro, '/me/notifications')).json(), { posts: false, comments: true, chat: true, mentions: true });
   await post(beto, 'segundo post');
   await settle();
   assert.ok(got(epA, `${nameOf(beto)} publicó`));

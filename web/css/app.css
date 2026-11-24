@@ -395,6 +395,17 @@ a.name { color: inherit; text-decoration: none; }
 .linkbox input { font-family: ui-monospace, 'Cascadia Code', Menlo, monospace; font-size: 0.82rem; }
 .section-title { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 4px 10px; }
 
+/* --- Menciones --- */
+.mention { color: var(--accent); font-weight: 600; text-decoration: none; }
+.mention:hover { text-decoration: underline; }
+.msg.mine .mention { color: #fff; text-decoration: underline; }
+.mention-box {
+  position: fixed; z-index: 60; padding: 4px; max-height: 230px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+}
+.mention-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border-radius: 10px; background: none; color: var(--text); font-weight: 600; text-align: left; }
+.mention-item:hover, .mention-item.active { background: var(--accent-soft); filter: none; }
+
 /* --- Avisos --- */
 .toast {
   position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); z-index: 50;

@@ -3,7 +3,7 @@ import { pool } from '../db.js';
 import { removeFile, saveImage, UPLOAD_DIR, uploadLimit, uploadPost } from '../images.js';
 import { requireAuth } from '../auth.js';
 import { commentCounts, reactionSummary } from './social.js';
-import { notifyLater, snippet } from '../push.js';
+import { mentionedIds, notifyLater, snippet } from '../push.js';
 
 const router = Router();
 export default router;
@@ -70,9 +70,13 @@ router.post('/posts', uploadLimit, uploadPost, async (req, res) => {
   const scope = req.body?.scope === 'profile' ? 'profile' : 'feed'; // profile: solo en el perfil propio
   const [r] = await pool.execute('INSERT INTO posts (user_id, body, media_id, scope) VALUES (?, ?, ?, ?)', [req.user.id, body || null, saved[0]?.id ?? null, scope]);
   for (const [i, img] of saved.entries()) await pool.execute('INSERT INTO post_media (post_id, media_id, position) VALUES (?, ?, ?)', [r.insertId, img.id, i]);
+  // Los mencionados reciben "te mencionó" en lugar del aviso general (nunca los dos).
+  const mentioned = await mentionedIds(body, [req.user.id]);
+  const url = scope === 'feed' ? '/' : `/u/${req.user.username}`;
+  notifyLater('mentions', { title: `${req.user.display_name} te mencionó`, body: snippet(body), url, tag: `post-${r.insertId}` }, { to: mentioned });
   if (scope === 'feed') {
     const what = saved.length > 1 ? `📷 Subió ${saved.length} fotos` : '📷 Subió una foto';
-    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : what, url: '/', tag: `post-${r.insertId}` }, { except: [req.user.id] });
+    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : what, url, tag: `post-${r.insertId}` }, { except: [req.user.id, ...mentioned] });
   }
   res.status(201).json({ id: r.insertId });
 });
