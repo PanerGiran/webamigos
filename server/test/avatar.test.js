@@ -60,6 +60,29 @@ test('foto de perfil: subir, recortar, aparecer en todos lados, cambiar y quitar
   assert.equal((await media(u, nueva)).status, 404);
 });
 
+test('foto de perfil y portada: los GIF animados siguen animados', async () => {
+  const u = await makeUser();
+  const frame = (c) => sharp({ create: { width: 400, height: 300, channels: 3, background: c } }).png().toBuffer();
+  const gif = await sharp(await Promise.all(['#e33', '#3e3', '#33e'].map(frame)), { join: { animated: true } }).gif({ delay: 200 }).toBuffer();
+  const anim = async (f) => sharp(Buffer.from(await (await media(u, f)).arrayBuffer()), { animated: true }).metadata();
+
+  const { avatar, avatar_full } = await (await putAvatar(u, gif, 'image/gif')).json();
+  let m = await anim(avatar);
+  assert.deepEqual([m.format, m.pages, m.width, m.pageHeight], ['webp', 3, 256, 256], 'avatar: 3 cuadros, cuadrado');
+  m = await anim(avatar_full);
+  assert.deepEqual([m.pages, m.width, m.pageHeight], [3, 400, 300], 'la versión completa también se mueve');
+
+  const form = new FormData();
+  form.append('image', new Blob([gif], { type: 'image/gif' }), 'p.gif');
+  const { cover } = await (await fetch(`${base}/me/cover`, { method: 'PUT', headers: auth(u), body: form })).json();
+  m = await anim(cover);
+  assert.deepEqual([m.pages, m.width, m.pageHeight], [3, 900, 300], 'portada animada (más chica que la fija)');
+
+  // Una foto fija sigue igual que antes.
+  const still = (await (await putAvatar(u, await frame('#999'))).json()).avatar;
+  assert.equal((await anim(still)).pages ?? 1, 1);
+});
+
 test('foto de perfil: rechaza lo que no es imagen y pide sesión', async () => {
   const u = await makeUser();
   assert.equal((await putAvatar(u, Buffer.from('no soy una foto'), 'image/png')).status, 400);
