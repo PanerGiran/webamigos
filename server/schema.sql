@@ -68,6 +68,15 @@ CREATE TABLE posts (
   FOREIGN KEY (media_id) REFERENCES media(id)
 );
 
+CREATE TABLE post_media (                       -- fotos de cada post, en orden (posts.media_id = la primera)
+  post_id BIGINT UNSIGNED NOT NULL,
+  media_id BIGINT UNSIGNED NOT NULL,
+  position TINYINT UNSIGNED NOT NULL,
+  PRIMARY KEY (post_id, position),
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+  FOREIGN KEY (media_id) REFERENCES media(id)
+);
+
 CREATE TABLE comments (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   post_id BIGINT UNSIGNED NOT NULL,

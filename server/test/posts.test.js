@@ -105,3 +105,32 @@ test('paginación con ?before', async () => {
   assert.ok(p2.posts.every((x) => x.id < last));
   assert.equal(p1.posts[0].body, 'post 21', 'del más nuevo al más viejo');
 });
+
+test('álbum: varias fotos en orden, máximo 6, todo o nada, y se borran todas', async () => {
+  const u = await makeUser();
+  const color = (c, w = 40, hgt = 30) => sharp({ create: { width: w, height: hgt, channels: 3, background: c } }).png().toBuffer();
+  const album = async (bufs) => {
+    const form = new FormData();
+    form.append('body', 'álbum');
+    for (const b of bufs) form.append('images', new Blob([b], { type: 'image/png' }), 'f.png');
+    return fetch(`${base}/posts`, { method: 'POST', headers: auth(u), body: form });
+  };
+
+  let res = await album([await color('#f00', 40, 30), await color('#0f0', 30, 40), await color('#00f', 50, 50)]);
+  assert.equal(res.status, 201);
+  const { id } = await res.json();
+  const p = (await feed(u)).posts.find((x) => x.id === id);
+  assert.equal(p.images.length, 3);
+  assert.deepEqual(p.images.map((i) => [i.width, i.height]), [[40, 30], [30, 40], [50, 50]], 'en el orden en que se subieron');
+  assert.equal(p.filename, p.images[0].filename, 'la primera sigue siendo la "foto del post"');
+
+  assert.equal((await album(await Promise.all(Array.from({ length: 7 }, () => color('#999'))))).status, 400, 'máximo 6');
+
+  const [[{ n: antes }]] = await pool.execute('SELECT COUNT(*) AS n FROM media WHERE user_id = ?', [u.id]);
+  assert.equal((await album([await color('#123'), Buffer.from('esto no es una foto')])).status, 400);
+  const [[{ n: despues }]] = await pool.execute('SELECT COUNT(*) AS n FROM media WHERE user_id = ?', [u.id]);
+  assert.equal(despues, antes, 'si una falla, no quedan fotos sueltas');
+
+  assert.equal((await fetch(`${base}/posts/${id}`, { method: 'DELETE', headers: auth(u) })).status, 204);
+  for (const img of p.images) assert.equal((await fetch(`${base}/media/${img.filename}`, { headers: auth(u) })).status, 404);
+});

@@ -14,6 +14,12 @@ sharp.concurrency(1);
 sharp.cache(false);
 
 export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 2 } });
+// Posts: hasta 6 fotos (álbum). Campos: texto, dónde se publica y la encuesta.
+export const MAX_PHOTOS = 6;
+export const uploadPost = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: MAX_PHOTOS, fields: 6 } }).fields([
+  { name: 'images', maxCount: MAX_PHOTOS },
+  { name: 'image', maxCount: 1 }, // forma vieja (una sola foto)
+]);
 // Va después de requireAuth (usa req.user).
 export const uploadLimit = rateLimit({ windowMs: 60 * 60_000, limit: 30, keyGenerator: (req) => String(req.user.id), standardHeaders: 'draft-8', legacyHeaders: false });
 

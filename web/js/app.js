@@ -2,6 +2,7 @@ import { api, getToken, imageUrl, setToken, WS_URL } from './api.js';
 
 const root = document.getElementById('app');
 const MAX_IMAGE = 5 * 1024 * 1024;
+const MAX_PHOTOS = 6; // por post (igual que en el servidor)
 const fmt = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
 const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
 let me = null;
@@ -72,10 +73,33 @@ function toast(text, kind = '') {
   toastTimer = setTimeout(() => (toastEl.className = 'toast'), 2600);
 }
 
-// Visor de fotos a pantalla completa (se cierra con un toque o con Esc).
+// Visor de fotos a pantalla completa (se cierra con un toque o con Esc). En un álbum: flechas, teclado o deslizar.
 const lightboxImg = h('img', { alt: '' });
-const lightbox = h('dialog', { className: 'lightbox', onclick: () => lightbox.close() }, lightboxImg);
+const lbPrev = h('button', { type: 'button', className: 'lb-nav prev', ariaLabel: 'Foto anterior' }, '‹');
+const lbNext = h('button', { type: 'button', className: 'lb-nav next', ariaLabel: 'Foto siguiente' }, '›');
+const lbCount = h('span', { className: 'lb-count' });
+const lightbox = h('dialog', { className: 'lightbox', onclick: () => lightbox.close() }, lightboxImg, lbPrev, lbNext, lbCount);
 document.body.append(lightbox);
+let lbList = [];
+let lbIndex = 0;
+function showLb() {
+  lightboxImg.src = lbList[lbIndex];
+  lbPrev.hidden = lbNext.hidden = lbCount.hidden = lbList.length < 2;
+  lbCount.textContent = `${lbIndex + 1} / ${lbList.length}`;
+}
+const lbStep = (d) => {
+  lbIndex = (lbIndex + d + lbList.length) % lbList.length;
+  showLb();
+};
+lbPrev.onclick = (e) => (e.stopPropagation(), lbStep(-1));
+lbNext.onclick = (e) => (e.stopPropagation(), lbStep(1));
+lightbox.onkeydown = (e) => (e.key === 'ArrowLeft' ? lbStep(-1) : e.key === 'ArrowRight' ? lbStep(1) : null);
+let lbTouchX = 0;
+lightbox.addEventListener('touchstart', (e) => (lbTouchX = e.touches[0].clientX), { passive: true });
+lightbox.addEventListener('touchend', (e) => {
+  const dx = e.changedTouches[0].clientX - lbTouchX;
+  if (lbList.length > 1 && Math.abs(dx) > 50) lbStep(dx < 0 ? 1 : -1);
+});
 // Panel que sube desde abajo (listas cortas: quién reaccionó, etc.). Se cierra tocando afuera o con Esc.
 const sheetBody = h('div', { className: 'sheet-body' });
 const sheetTitle = h('h2', {});
@@ -88,8 +112,10 @@ function openSheet(title, ...children) {
   sheet.showModal();
 }
 
-function openPhoto(src) {
-  lightboxImg.src = src;
+function openPhoto(src, list = [src], index = 0) {
+  lbList = list;
+  lbIndex = index;
+  showLb();
   lightbox.showModal();
 }
 
@@ -215,38 +241,47 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
     text.style.height = 'auto';
     text.style.height = `${text.scrollHeight}px`;
   };
-  const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
-  const previewImg = h('img', { alt: 'Vista previa' });
+  // Fotos elegidas (hasta MAX_PHOTOS), cada una con su vista previa.
+  const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', multiple: true, hidden: true });
+  let photos = [];
+  const preview = h('div', { className: 'preview-grid', hidden: true });
+  function drawPreviews() {
+    preview.replaceChildren(
+      ...photos.map((ph, i) =>
+        h('div', { className: 'preview-wrap' }, h('img', { src: ph.url, alt: `Foto ${i + 1}` }), btn('x', 'Quitar foto', () => {
+          URL.revokeObjectURL(ph.url);
+          photos.splice(i, 1);
+          drawPreviews();
+        }, '', { iconOnly: true })),
+      ),
+    );
+    preview.hidden = !photos.length;
+  }
   const clear = () => {
-    file.value = '';
-    if (previewImg.src) URL.revokeObjectURL(previewImg.src);
-    previewImg.removeAttribute('src');
-    preview.hidden = true;
+    photos.forEach((ph) => URL.revokeObjectURL(ph.url));
+    photos = [];
+    drawPreviews();
   };
-  const preview = h('div', { className: 'preview-wrap', hidden: true }, previewImg, btn('x', 'Quitar imagen', clear, '', { iconOnly: true }));
   file.onchange = () => {
-    const f = file.files[0];
-    if (!f) return clear();
-    if (f.size > MAX_IMAGE) {
-      clear();
-      msg.textContent = 'La imagen pasa los 5 MB.';
-      return;
-    }
-    msg.textContent = '';
-    if (previewImg.src) URL.revokeObjectURL(previewImg.src);
-    previewImg.src = URL.createObjectURL(f);
-    preview.hidden = false;
+    const picked = [...file.files];
+    file.value = '';
+    const ok = picked.filter((f) => f.size <= MAX_IMAGE);
+    const tooBig = picked.length - ok.length;
+    const room = MAX_PHOTOS - photos.length;
+    photos.push(...ok.slice(0, room).map((f) => ({ file: f, url: URL.createObjectURL(f) })));
+    msg.textContent = tooBig ? `${tooBig === 1 ? 'Una foto pasa' : `${tooBig} fotos pasan`} los 5 MB.` : ok.length > room ? `Máximo ${MAX_PHOTOS} fotos por post.` : '';
+    drawPreviews();
   };
   return h(
     'form',
     {
       className: 'card composer',
       onsubmit: onSubmit(msg, async () => {
-        if (!text.value.trim() && !file.files[0]) throw new Error('Escribí algo o elegí una foto.');
+        if (!text.value.trim() && !photos.length) throw new Error('Escribí algo o elegí una foto.');
         const form = new FormData();
         form.append('body', text.value);
         form.append('scope', scope);
-        if (file.files[0]) form.append('image', file.files[0]);
+        for (const ph of photos) form.append('images', ph.file);
         await api('/posts', { method: 'POST', form });
         text.value = '';
         text.style.height = '';
@@ -288,6 +323,29 @@ function editInPlace(el, current, { maxLength, save }) {
   input.focus();
 }
 
+// Fotos de un post: una sola a todo el ancho; varias en grilla (hasta 4 visibles, "+N" en la última).
+// Tocar cualquiera abre el visor con todo el álbum.
+function gallery(images, alt) {
+  const urls = images.map(() => null);
+  // shortcut: los blobs no se liberan (los usa el visor); con miles de fotos en una sesión, liberar los que salen de pantalla.
+  const loads = images.map((img, i) => imageUrl(img.filename).then((url) => (urls[i] = url)));
+  const open = async (i) => {
+    await Promise.allSettled(loads);
+    const ok = urls.map((u, j) => [u, j]).filter(([u]) => u);
+    if (ok.length) openPhoto(null, ok.map(([u]) => u), Math.max(0, ok.findIndex(([, j]) => j === i)));
+  };
+  const n = Math.min(images.length, 4);
+  return h(
+    'div',
+    { className: `gallery n${n}` },
+    ...images.slice(0, 4).map((img, i) => {
+      const el = h('img', { className: 'photo', alt, width: img.width, height: img.height });
+      loads[i].then((url) => (el.src = url)).catch(() => el.replaceWith(h('span', { className: 'muted small' }, '(no se pudo cargar)')));
+      return h('div', { className: 'cell', onclick: () => open(i) }, el, i === 3 && images.length > 4 && h('span', { className: 'more' }, `+${images.length - 4}`));
+    }),
+  );
+}
+
 function postCard(p) {
   const date = new Date(p.created_at);
   const who = h('div', { className: 'who' }, h('strong', {}, p.display_name), h('time', { dateTime: p.created_at, title: fmt.format(date) }, timeAgo(date)), p.edited_at && editedTag());
@@ -320,17 +378,8 @@ function postCard(p) {
       }), 'ghost danger', { iconOnly: true }),
     );
   }
-  if (p.filename) {
-    const img = h('img', { className: 'photo', alt: p.body ? '' : `Foto de ${p.display_name}`, width: p.width, height: p.height });
-    card.append(img);
-    imageUrl(p.filename)
-      .then((url) => {
-        // shortcut: el blob no se libera (lo usa el visor); con miles de fotos en una sesión, liberar los que salen de pantalla.
-        img.src = url;
-        img.onclick = () => openPhoto(url);
-      })
-      .catch(() => img.replaceWith(h('p', { className: 'muted small' }, '(no se pudo cargar la imagen)')));
-  }
+  const images = p.images?.length ? p.images : p.filename ? [{ filename: p.filename, width: p.width, height: p.height }] : [];
+  if (images.length) card.append(gallery(images, p.body ? '' : `Foto de ${p.display_name}`));
   card.append(...postFooter(p));
   return card;
 }

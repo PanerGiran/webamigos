@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { removeFile, saveImage, upload, UPLOAD_DIR, uploadLimit } from '../images.js';
+import { removeFile, saveImage, UPLOAD_DIR, uploadLimit, uploadPost } from '../images.js';
 import { requireAuth } from '../auth.js';
 import { commentCounts, reactionSummary } from './social.js';
 import { notifyLater, snippet } from '../push.js';
@@ -21,33 +21,66 @@ router.get('/posts', async (req, res) => {
   if (user) where.push('u.username = ?'), params.push(user);
   if (before > 0) where.push('p.id < ?'), params.push(before);
   const [rows] = await pool.execute(
-    `SELECT p.id, p.body, p.scope, p.created_at, p.edited_at, p.user_id, u.username, u.display_name, u.avatar, m.filename, m.width, m.height
-       FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media m ON m.id = p.media_id
+    `${POST_SELECT}
       WHERE ${where.join(' AND ')}
       ORDER BY p.id DESC LIMIT ${PAGE}`,
     params,
   );
-  const ids = rows.map((p) => p.id);
-  const [reactions, counts] = await Promise.all([reactionSummary(ids, req.user.id), commentCounts(ids)]);
-  for (const p of rows) Object.assign(p, { reactions: reactions[p.id], comment_count: counts[p.id] ?? 0 });
-  res.json({ posts: rows, more: rows.length === PAGE });
+  res.json({ posts: await decoratePosts(rows, req.user.id), more: rows.length === PAGE });
 });
 
-router.post('/posts', uploadLimit, upload.single('image'), async (req, res) => {
+// Columnas y joins comunes para listar posts (feed, perfil, buscador).
+export const POST_SELECT = `SELECT p.id, p.body, p.scope, p.created_at, p.edited_at, p.user_id, u.username, u.display_name, u.avatar, m.filename, m.width, m.height
+       FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media m ON m.id = p.media_id`;
+
+// Le agrega a cada post sus fotos, reacciones y cantidad de comentarios.
+export async function decoratePosts(rows, userId) {
+  const ids = rows.map((p) => p.id);
+  const [reactions, counts, images] = await Promise.all([reactionSummary(ids, userId), commentCounts(ids), postImages(ids)]);
+  for (const p of rows) Object.assign(p, { reactions: reactions[p.id], comment_count: counts[p.id] ?? 0, images: images[p.id] ?? [] });
+  return rows;
+}
+
+async function postImages(ids) {
+  if (!ids.length) return {};
+  const [rows] = await pool.execute(
+    `SELECT pm.post_id, m.filename, m.width, m.height FROM post_media pm JOIN media m ON m.id = pm.media_id
+      WHERE pm.post_id IN (${ids.map(() => '?').join(',')}) ORDER BY pm.post_id, pm.position`,
+    ids,
+  );
+  const out = {};
+  for (const { post_id, ...img } of rows) (out[post_id] ??= []).push(img);
+  return out;
+}
+
+router.post('/posts', uploadLimit, uploadPost, async (req, res) => {
   const body = String(req.body?.body ?? '').trim();
-  if (body.length > 5000 || (!body && !req.file)) return res.status(400).json({ error: 'el post necesita texto o una imagen' });
-  let mediaId = null;
-  if (req.file) {
-    mediaId = (await saveImage(req.file.buffer, req.user.id).catch(() => null))?.id;
-    if (!mediaId) return res.status(400).json({ error: 'imagen inválida (JPEG, PNG, WebP o GIF)' });
+  const files = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
+  if (body.length > 5000 || (!body && !files.length)) return res.status(400).json({ error: 'El post necesita texto o una foto.' });
+  // Se procesan de a una (poca RAM). Si alguna no es imagen, se borran las ya guardadas y no se publica nada.
+  const saved = [];
+  for (const f of files) {
+    const img = await saveImage(f.buffer, req.user.id).catch(() => null);
+    if (!img) {
+      for (const s of saved) await dropMedia(s);
+      return res.status(400).json({ error: 'Alguna foto no es válida (JPEG, PNG, WebP o GIF).' });
+    }
+    saved.push(img);
   }
   const scope = req.body?.scope === 'profile' ? 'profile' : 'feed'; // profile: solo en el perfil propio
-  const [r] = await pool.execute('INSERT INTO posts (user_id, body, media_id, scope) VALUES (?, ?, ?, ?)', [req.user.id, body || null, mediaId, scope]);
+  const [r] = await pool.execute('INSERT INTO posts (user_id, body, media_id, scope) VALUES (?, ?, ?, ?)', [req.user.id, body || null, saved[0]?.id ?? null, scope]);
+  for (const [i, img] of saved.entries()) await pool.execute('INSERT INTO post_media (post_id, media_id, position) VALUES (?, ?, ?)', [r.insertId, img.id, i]);
   if (scope === 'feed') {
-    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : '📷 Subió una foto', url: '/', tag: `post-${r.insertId}` }, { except: [req.user.id] });
+    const what = saved.length > 1 ? `📷 Subió ${saved.length} fotos` : '📷 Subió una foto';
+    notifyLater('posts', { title: `${req.user.display_name} publicó`, body: body ? snippet(body) : what, url: '/', tag: `post-${r.insertId}` }, { except: [req.user.id] });
   }
   res.status(201).json({ id: r.insertId });
 });
+
+async function dropMedia(img) {
+  await removeFile(img.filename);
+  await pool.execute('DELETE FROM media WHERE id = ?', [img.id]);
+}
 
 // Editar el texto: solo el autor. Si el post no tiene foto, el texto no puede quedar vacío.
 router.patch('/posts/:id', async (req, res) => {
@@ -63,16 +96,13 @@ router.patch('/posts/:id', async (req, res) => {
 });
 
 router.delete('/posts/:id', async (req, res) => {
-  const [[post]] = await pool.execute(
-    `SELECT p.id, p.user_id, m.filename FROM posts p LEFT JOIN media m ON m.id = p.media_id
-      WHERE p.id = ? AND p.deleted_at IS NULL`,
-    [req.params.id],
-  );
+  const [[post]] = await pool.execute('SELECT id, user_id FROM posts WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
   if (!post) return res.status(404).json({ error: 'no existe' });
   if (post.user_id !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'no es tuyo' });
   await pool.execute('UPDATE posts SET deleted_at = NOW() WHERE id = ?', [post.id]);
-  // Si alguien borra un post, la imagen no tiene que quedar en el servidor.
-  if (post.filename) await removeFile(post.filename);
+  // Si alguien borra un post, sus fotos no tienen que quedar en el servidor.
+  const [files] = await pool.execute('SELECT m.filename FROM post_media pm JOIN media m ON m.id = pm.media_id WHERE pm.post_id = ?', [post.id]);
+  for (const f of files) await removeFile(f.filename);
   res.status(204).end();
 });
 
