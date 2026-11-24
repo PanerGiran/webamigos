@@ -1657,7 +1657,7 @@ function chatScreen() {
   const list = h('div', { className: 'chat-list' });
   const status = h('span', { className: 'muted small' }, 'Conectando…');
   const online = h('div', { className: 'online' });
-  const input = withMentions(h('textarea', { rows: 1, maxLength: 2000, placeholder: 'Escribí un mensaje…' }));
+  const input = withMentions(h('textarea', { rows: 1, maxLength: 2000, placeholder: 'Mensaje…' }));
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Enviar', disabled: true }, icon('send'));
   const olderBtn = h('button', { type: 'button', className: 'soft sm older' }, 'Ver mensajes anteriores');
 
@@ -1713,14 +1713,16 @@ function chatScreen() {
           {
             className: `bubble${activeId === m.id ? ' active' : ''}`,
             onclick: (e) => {
-              if (e.target.closest('a')) return;
+              if (e.target.closest('a, button, audio, video, img')) return;
               activeId = activeId === m.id ? null : m.id;
               draw();
             },
           },
           !mine && first && profileLink(m, { className: 'name' }, h('strong', {}, m.display_name)),
           m.reply && h('button', { type: 'button', className: 'quote', onclick: stop(() => jumpTo(m.reply.id)) }, h('strong', {}, m.reply.display_name), h('span', {}, m.reply.body)),
-          h('p', {}, ...richText(m.body)),
+          m.body && h('p', {}, ...richText(m.body)),
+          m.media && renderMedia(m.media, { onOpenPhoto: openPhoto }),
+          m.poll && chatPoll(m),
           h('time', { dateTime: m.created_at, title: fmt.format(date) }, (sameDay ? hourFmt : dayHourFmt).format(date)),
         ),
         m.reactions?.length > 0 &&
@@ -1791,11 +1793,71 @@ function chatScreen() {
     } else if (msg.type === 'message' && !messages.some((m) => m.id === msg.message.id)) {
       messages.push(msg.message);
       draw(msg.message.user_id === me.id ? 'bottom' : undefined);
+    } else if (msg.type === 'poll') {
+      const m = messages.find((x) => x.id === msg.message_id);
+      if (m) (m.poll = msg.poll), draw();
     } else if (msg.type === 'reactions') {
       const m = messages.find((x) => x.id === msg.message_id);
       if (m) (m.reactions = msg.reactions), draw();
     } else if (msg.type === 'presence') drawOnline(msg.users);
   };
+
+  // Manda un mensaje con foto, audio o encuesta. El texto escrito (si hay) va como epígrafe.
+  async function sendExtra({ file, poll, body = input.value.trim() }) {
+    const form = new FormData();
+    if (body) form.append('body', body);
+    if (file) form.append('file', file);
+    if (poll) form.append('poll', JSON.stringify(poll));
+    if (replyTo) form.append('reply_to', String(replyTo.id));
+    toast(file ? 'Enviando…' : 'Enviando encuesta…');
+    const { message } = await api('/messages', { method: 'POST', form });
+    if (!messages.some((m) => m.id === message.id)) messages.push(message), draw('bottom');
+    if (!poll) input.value = '';
+    cancelReply();
+  }
+  const photoInput = h('input', { type: 'file', accept: 'image/*,audio/*', hidden: true });
+  photoInput.onchange = safe(async () => {
+    const f = photoInput.files[0];
+    photoInput.value = '';
+    if (!f) return;
+    if (f.size > MAX_IMAGE) throw new Error('El archivo pasa los 5 MB.');
+    await sendExtra({ file: f });
+  });
+  const recorder = audioRecorder({ onRecorded: (f) => safe(() => sendExtra({ file: f, body: '' }))(), onError: (msg) => toast(msg, 'error') });
+  // Encuesta: se arma en el panel de abajo (pregunta + de 2 a 6 opciones).
+  function pollSheet() {
+    const question = h('input', { maxLength: 300, placeholder: '¿Qué querés preguntar?', value: input.value.trim() });
+    const opts = [];
+    const list = h('div', {});
+    const addOpt = () => opts.length < 6 && (opts.push(h('input', { maxLength: 100, placeholder: `Opción ${opts.length + 1}` })), drawOpts());
+    const drawOpts = () => list.replaceChildren(...opts, ...[opts.length < 6 && h('button', { type: 'button', className: 'ghost sm', onclick: addOpt }, '+ Agregar opción')].filter(Boolean));
+    addOpt();
+    addOpt();
+    const msg = errorBox();
+    openSheet(
+      'Encuesta',
+      h('form', {
+        className: 'chat-poll-form',
+        onsubmit: onSubmit(msg, async () => {
+          const options = opts.map((o) => o.value.trim()).filter(Boolean);
+          if (!question.value.trim()) throw new Error('Escribí la pregunta.');
+          if (options.length < 2) throw new Error('Poné al menos 2 opciones.');
+          await sendExtra({ poll: options, body: question.value.trim() });
+          input.value = '';
+          sheet.close();
+        }),
+      }, label('Pregunta', question), h('span', { className: 'field-label' }, 'Opciones'), list, msg, h('button', { className: 'primary block' }, 'Mandar encuesta')),
+    );
+    question.focus();
+  }
+  const chatTools = h(
+    'div',
+    { className: 'chat-tools' },
+    btn('image', 'Mandar foto', () => photoInput.click(), 'ghost', { iconOnly: true }),
+    photoInput,
+    recorder,
+    btn('poll', 'Mandar encuesta', pollSheet, 'ghost', { iconOnly: true }),
+  );
 
   const send = () => {
     const body = input.value.trim();
@@ -1826,10 +1888,34 @@ function chatScreen() {
     h('div', { className: 'chat-head' }, link('/', { className: 'back chat-back', title: 'Volver al feed' }, '← Feed'), h('div', { className: 'chat-title' }, h('h1', {}, 'Chat del grupo'), status), online),
     list,
     replyBar,
-    h('form', { className: 'chat-form', onsubmit: (e) => (e.preventDefault(), send()) }, input, sendBtn),
+    h('form', { className: 'chat-form', onsubmit: (e) => (e.preventDefault(), send()) }, chatTools, input, sendBtn),
   );
   nodes[1].className = 'chat-main';
   return nodes;
+}
+
+// Encuesta en el chat: tocar una opción vota (o saca tu voto). Los resultados se actualizan en vivo para todos.
+function chatPoll(m) {
+  const mine = m.poll.options.find((o) => o.user_ids.includes(me.id))?.id ?? null;
+  const total = m.poll.total;
+  const vote = safe(async (id) => {
+    const r = await api(`/messages/${m.id}/vote`, { method: 'PUT', json: { option_id: mine === id ? null : id } });
+    m.poll = r.poll; // también llega por la conexión en vivo; así se ve al instante
+  });
+  return h(
+    'div',
+    { className: 'poll chat-poll' },
+    ...m.poll.options.map((o) => {
+      const pct = total ? Math.round((o.votes / total) * 100) : 0;
+      const b = h('button', { type: 'button', className: `poll-option${o.id === mine ? ' mine' : ''}`, onclick: () => vote(o.id) },
+        h('span', { className: 'poll-text' }, o.id === mine && icon('check'), o.text),
+        h('span', { className: 'poll-pct' }, `${pct}%`));
+      b.style.setProperty('--pct', `${pct}%`);
+      b.setAttribute('aria-pressed', o.id === mine);
+      return b;
+    }),
+    h('div', { className: 'poll-foot muted small' }, `${total} voto${total === 1 ? '' : 's'}`),
+  );
 }
 
 // --- Rutas ---
