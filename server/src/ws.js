@@ -70,18 +70,24 @@ export function attachChat(server) {
       : [[]];
     const [r] = await pool.execute('INSERT INTO messages (user_id, body, reply_to) VALUES (?, ?, ?)', [ws.user.id, body, replied?.id ?? null]);
     const { id, username, display_name, avatar } = ws.user;
-    broadcast({
-      type: 'message',
-      message: { id: r.insertId, body, created_at: new Date().toISOString(), user_id: id, username, display_name, avatar, reply: quote(replied), reactions: [] },
-    });
-    // Aviso solo a quien no tiene el chat abierto. Con el mismo tag, los mensajes seguidos se juntan en un aviso.
+    const message = { id: r.insertId, body, created_at: new Date().toISOString(), user_id: id, username, display_name, avatar, reply: quote(replied), reactions: [], media: null, poll: null };
+    await publishChat(ws.user, message);
+  }
+
+  // Manda el mensaje a todos y avisa (push) a quien no tiene la app abierta. Lo usan el texto (acá) y la ruta de
+  // mensajes con foto, audio o encuesta. Con el mismo tag, los mensajes seguidos se juntan en un aviso.
+  async function publishChat(user, message) {
+    broadcast({ type: 'message', message });
+    const what = message.poll ? `📊 ${snippet(message.body)}` : message.body ? snippet(message.body) : `📎 Mandó ${message.media?.kind === 'audio' ? 'un audio' : 'una foto'}`;
     // A quien lo mencionan le llega "te mencionó" en lugar del aviso general del chat.
     const online = authed().map((c) => c.user.id);
-    const skip = [...new Set([id, ...online])];
-    const mentioned = await mentionedIds(body, skip);
-    notifyLater('mentions', { title: `${display_name} te mencionó en el chat`, body: snippet(body), url: '/chat', tag: 'chat-mention' }, { to: mentioned });
-    notifyLater('chat', { title: `${display_name} en el chat`, body: snippet(body), url: '/chat', tag: 'chat' }, { except: [...skip, ...mentioned] });
+    const skip = [...new Set([user.id, ...online])];
+    const mentioned = await mentionedIds(message.body, skip);
+    notifyLater('mentions', { title: `${user.display_name} te mencionó en el chat`, body: what, url: '/chat', tag: 'chat-mention' }, { to: mentioned });
+    notifyLater('chat', { title: `${user.display_name} en el chat`, body: what, url: '/chat', tag: 'chat' }, { except: [...skip, ...mentioned] });
   }
+  live.publishChat = (user, message) => publishChat(user, message).catch((err) => console.error('chat:', err.message));
+  live.broadcast = broadcast;
 
   function onConnection(ws) {
     ws.alive = true;

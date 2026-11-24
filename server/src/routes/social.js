@@ -6,6 +6,8 @@ import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { mentionedIds, notifyLater, snippet } from '../push.js';
 import { mediaKind, removeMedia, saveAttachment, uploadAttachment } from '../media.js';
+import { parsePoll } from '../polls.js';
+import { live } from '../live.js';
 
 const router = Router();
 export default router;
@@ -178,24 +180,102 @@ export async function messageReactions(ids) {
 // Lo que se muestra citado cuando un mensaje responde a otro.
 export const quote = (r) => (r?.id ? { id: r.id, body: snippet(r.body, 140), username: r.username, display_name: r.display_name } : null);
 
-router.get('/messages', async (req, res) => {
-  const before = Number.parseInt(req.query.before, 10);
+// Encuestas del chat: { message_id: { options: [{ id, text, votes, user_ids }], total } }.
+// Con user_ids cada app sabe si votó (las actualizaciones llegan a todos a la vez).
+export async function chatPolls(ids) {
+  if (!ids.length) return {};
+  const [rows] = await pool.execute(
+    `SELECT o.id, o.message_id, o.text, GROUP_CONCAT(v.user_id) AS users
+       FROM chat_poll_options o LEFT JOIN chat_poll_votes v ON v.option_id = o.id
+      WHERE o.message_id IN (${ids.map(() => '?').join(',')}) GROUP BY o.id ORDER BY o.message_id, o.position`,
+    ids,
+  );
+  const out = {};
+  for (const r of rows) {
+    const user_ids = r.users ? r.users.split(',').map(Number) : [];
+    const poll = (out[r.message_id] ??= { options: [], total: 0 });
+    poll.options.push({ id: r.id, text: r.text, votes: user_ids.length, user_ids });
+    poll.total += user_ids.length;
+  }
+  return out;
+}
+
+// Mensajes del chat con su cita, reacciones, adjunto y encuesta (historial y mensajes nuevos).
+export async function loadMessages(where = '', params = [], limit = CHAT_PAGE) {
   const [rows] = await pool.execute(
     `SELECT m.id, m.body, m.created_at, m.user_id, u.username, u.display_name, u.avatar,
-            r.id AS r_id, r.body AS r_body, ru.username AS r_username, ru.display_name AS r_display_name
+            r.id AS r_id, r.body AS r_body, ru.username AS r_username, ru.display_name AS r_display_name,
+            md.filename, md.mime, md.width, md.height
        FROM messages m JOIN users u ON u.id = m.user_id
        LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
-      ${before > 0 ? 'WHERE m.id < ?' : ''}
-      ORDER BY m.id DESC LIMIT ${CHAT_PAGE}`,
-    before > 0 ? [before] : [],
+       LEFT JOIN media md ON md.id = m.media_id
+      ${where ? `WHERE ${where}` : ''}
+      ORDER BY m.id DESC LIMIT ${limit}`,
+    params,
   );
-  const reactions = await messageReactions(rows.map((m) => m.id));
-  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, ...m }) => ({
+  const ids = rows.map((m) => m.id);
+  const [reactions, polls] = await Promise.all([messageReactions(ids), chatPolls(ids)]);
+  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, filename, mime, width, height, ...m }) => ({
     ...m,
     reply: quote({ id: r_id, body: r_body, username: r_username, display_name: r_display_name }),
     reactions: reactions[m.id],
+    media: filename ? { filename, mime, kind: mediaKind(mime), width, height } : null,
+    poll: polls[m.id] ?? null,
   }));
-  res.json({ messages, more: rows.length === CHAT_PAGE });
+  return { messages, more: rows.length === limit };
+}
+
+router.get('/messages', async (req, res) => {
+  const before = Number.parseInt(req.query.before, 10);
+  res.json(await loadMessages(before > 0 ? 'm.id < ?' : '', before > 0 ? [before] : []));
+});
+
+// Mensaje del chat con foto/audio o con encuesta (los de solo texto van por el WebSocket).
+const chatLimit = rateLimit({ windowMs: 60_000, limit: 20, keyGenerator: (req) => String(req.user.id), standardHeaders: 'draft-8', legacyHeaders: false });
+router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
+  const body = String(req.body?.body ?? '').trim();
+  const poll = parsePoll(req.body?.poll);
+  if (body.length > 2000 || poll.error) return res.status(400).json({ error: 'Mensaje o encuesta inválida (2 a 6 opciones distintas).' });
+  if (poll.options && !body) return res.status(400).json({ error: 'Escribí la pregunta de la encuesta.' });
+  if (!body && !req.file && !poll.options) return res.status(400).json({ error: 'El mensaje está vacío.' });
+  const replyId = Number.parseInt(req.body?.reply_to, 10);
+  const [[replied]] = replyId > 0 ? await pool.execute('SELECT id FROM messages WHERE id = ?', [replyId]) : [[]];
+  const attachment = req.file ? await saveAttachment(req.file, req.user.id) : null;
+  if (req.file && !attachment) return res.status(400).json({ error: 'El adjunto no es válido. Las fotos y los audios admiten hasta 5 MB.' });
+
+  let id;
+  try {
+    const [r] = await pool.execute('INSERT INTO messages (user_id, body, reply_to, media_id) VALUES (?, ?, ?, ?)', [req.user.id, body, replied?.id ?? null, attachment?.id ?? null]);
+    id = r.insertId;
+  } catch (err) {
+    if (attachment) await removeMedia(attachment.id);
+    throw err;
+  }
+  for (const [i, text] of (poll.options ?? []).entries()) await pool.execute('INSERT INTO chat_poll_options (message_id, position, text) VALUES (?, ?, ?)', [id, i, text]);
+  const [message] = (await loadMessages('m.id = ?', [id], 1)).messages;
+  live.publishChat(req.user, message);
+  res.status(201).json({ message });
+});
+
+// Votar en una encuesta del chat (option_id: null saca el voto). La actualización llega a todos.
+router.put('/messages/:id/vote', async (req, res) => {
+  const optionId = req.body?.option_id;
+  if (optionId !== null && !Number.isInteger(optionId)) return res.status(400).json({ error: 'voto inválido' });
+  const [[m]] = await pool.execute('SELECT id FROM messages WHERE id = ?', [req.params.id]);
+  if (!m) return res.status(404).json({ error: 'no existe' });
+  if (optionId === null) {
+    await pool.execute('DELETE FROM chat_poll_votes WHERE message_id = ? AND user_id = ?', [m.id, req.user.id]);
+  } else {
+    const [[opt]] = await pool.execute('SELECT id FROM chat_poll_options WHERE id = ? AND message_id = ?', [optionId, m.id]);
+    if (!opt) return res.status(400).json({ error: 'Esa opción no es de esta encuesta.' });
+    await pool.execute(
+      'INSERT INTO chat_poll_votes (message_id, user_id, option_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE option_id = VALUES(option_id)',
+      [m.id, req.user.id, opt.id],
+    );
+  }
+  const poll = (await chatPolls([m.id]))[m.id] ?? null;
+  live.broadcast({ type: 'poll', message_id: m.id, poll });
+  res.json({ poll });
 });
 
 // Todas las cuentas activas (para sugerir @menciones).

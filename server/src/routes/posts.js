@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { z } from 'zod';
+import { parsePoll } from '../polls.js';
 import { pool } from '../db.js';
 import { removeFile, saveImage, UPLOAD_DIR, uploadLimit, uploadPost } from '../images.js';
 import { requireAuth } from '../auth.js';
@@ -62,17 +62,6 @@ async function pollSummary(ids, userId) {
   return out;
 }
 
-// Opciones de encuesta que vienen como JSON en el formulario: 2 a 6, sin vacías ni repetidas.
-const pollOptions = z.array(z.string().trim().min(1).max(100)).min(2).max(6).refine((a) => new Set(a.map((s) => s.toLowerCase())).size === a.length);
-function parsePoll(raw) {
-  if (raw === undefined || raw === '') return { options: null };
-  try {
-    const r = pollOptions.safeParse(JSON.parse(raw));
-    return r.success ? { options: r.data } : { error: true };
-  } catch {
-    return { error: true };
-  }
-}
 
 async function postImages(ids) {
   if (!ids.length) return {};

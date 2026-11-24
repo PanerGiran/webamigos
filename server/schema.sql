@@ -126,9 +126,11 @@ CREATE TABLE messages (                        -- chat general (agregar room_id 
   body VARCHAR(2000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reply_to BIGINT UNSIGNED NULL,                -- mensaje al que responde
+  media_id BIGINT UNSIGNED NULL,                -- foto o audio adjunto
   INDEX idx_messages_created (created_at),
   FOREIGN KEY (user_id) REFERENCES users(id),
-  CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL
+  CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL,
+  CONSTRAINT fk_messages_media FOREIGN KEY (media_id) REFERENCES media(id)
 );
 
 CREATE TABLE message_reactions (
@@ -138,6 +140,24 @@ CREATE TABLE message_reactions (
   PRIMARY KEY (message_id, user_id, emoji),
   FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE chat_poll_options (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  message_id BIGINT UNSIGNED NOT NULL,
+  position TINYINT UNSIGNED NOT NULL,
+  text VARCHAR(100) NOT NULL,
+  UNIQUE KEY chat_poll_option_position (message_id, position),
+  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+CREATE TABLE chat_poll_votes (
+  message_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  option_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (message_id, user_id),
+  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (option_id) REFERENCES chat_poll_options(id) ON DELETE CASCADE
 );
 
 CREATE TABLE schema_migrations (                -- qué migraciones ya se aplicaron (ver migrate.sh)
