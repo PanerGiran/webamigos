@@ -93,6 +93,20 @@ router.delete('/comments/:id', async (req, res) => {
   res.status(204).end();
 });
 
+// Quiénes reaccionaron, agrupado por emoji (en el orden de EMOJIS).
+router.get('/posts/:id/reactions', async (req, res) => {
+  const post = await livePost(req.params.id);
+  if (!post) return res.status(404).json({ error: 'no existe' });
+  const [rows] = await pool.execute(
+    `SELECT r.emoji, u.id, u.username, u.display_name, u.avatar
+       FROM reactions r JOIN users u ON u.id = r.user_id
+      WHERE r.post_id = ? AND u.deleted_at IS NULL ORDER BY u.display_name`,
+    [post.id],
+  );
+  const reactions = EMOJIS.map((emoji) => ({ emoji, users: rows.filter((r) => r.emoji === emoji).map(({ emoji: _, ...u }) => u) })).filter((r) => r.users.length);
+  res.json({ reactions });
+});
+
 router.put('/posts/:id/reactions', async (req, res) => {
   const r = reactionBody.safeParse(req.body);
   if (!r.success) return res.status(400).json({ error: 'reacción inválida' });

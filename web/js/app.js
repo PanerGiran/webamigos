@@ -76,6 +76,18 @@ function toast(text, kind = '') {
 const lightboxImg = h('img', { alt: '' });
 const lightbox = h('dialog', { className: 'lightbox', onclick: () => lightbox.close() }, lightboxImg);
 document.body.append(lightbox);
+// Panel que sube desde abajo (listas cortas: quién reaccionó, etc.). Se cierra tocando afuera o con Esc.
+const sheetBody = h('div', { className: 'sheet-body' });
+const sheetTitle = h('h2', {});
+const sheet = h('dialog', { className: 'sheet' }, h('div', { className: 'sheet-head' }, sheetTitle), sheetBody);
+sheet.onclick = (e) => e.target === sheet && sheet.close();
+document.body.append(sheet);
+function openSheet(title, ...children) {
+  sheetTitle.textContent = title;
+  sheetBody.replaceChildren(...children);
+  sheet.showModal();
+}
+
 function openPhoto(src) {
   lightboxImg.src = src;
   lightbox.showModal();
@@ -347,6 +359,21 @@ function postFooter(p) {
         return b;
       }),
       btn('smile', 'Reaccionar', () => (picker.hidden = !picker.hidden), 'ghost', { iconOnly: true }),
+      ordered.length > 0 && h('button', { type: 'button', className: 'link who-reacted', onclick: safe(showWho) }, 'quiénes'),
+    );
+  }
+  async function showWho() {
+    const { reactions: groups } = await api(`/posts/${p.id}/reactions`);
+    openSheet(
+      'Reacciones',
+      ...groups.map((g) =>
+        h(
+          'div',
+          { className: 'react-group' },
+          h('div', { className: 'react-emoji' }, g.emoji, h('span', { className: 'muted small' }, String(g.users.length))),
+          ...g.users.map((u) => profileLink(u, { className: 'person' }, avatar(u, 'sm'), h('span', {}, u.display_name))),
+        ),
+      ),
     );
   }
   picker.append(...EMOJIS.map((e) => h('button', { type: 'button', className: 'emoji', onclick: () => react(e), ariaLabel: `Reaccionar con ${e}` }, e)));
@@ -1055,6 +1082,7 @@ function chatScreen() {
 
 async function render() {
   const path = location.pathname;
+  if (sheet.open) sheet.close();
   if (chatSocket && path !== '/chat') {
     const ws = chatSocket;
     chatSocket = null;

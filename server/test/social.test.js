@@ -62,3 +62,25 @@ test('reacciones: poner, sumar, quitar y validar', async () => {
   assert.equal((await call(a, `/posts/${postId}/reactions`, { method: 'PUT', json: { emoji: '😂' } })).status, 400);
   assert.equal((await call(null, `/posts/${postId}/reactions`, { method: 'PUT', json: { emoji: '😂', on: true } })).status, 401);
 });
+
+test('quiénes reaccionaron: agrupado por emoji y sin cuentas eliminadas', async () => {
+  const [a, b, c] = [await makeUser(), await makeUser(), await makeUser()];
+  const postId = await newPost(a);
+  const react = (u, emoji) => call(u, `/posts/${postId}/reactions`, { method: 'PUT', json: { emoji, on: true } });
+  await react(b, '🔥');
+  await react(c, '🔥');
+  await react(b, '❤️');
+
+  const { reactions } = await (await call(a, `/posts/${postId}/reactions`)).json();
+  assert.deepEqual(reactions.map((r) => r.emoji), ['❤️', '🔥'], 'en el orden de la lista de emojis');
+  assert.deepEqual(reactions[1].users.map((u) => u.username).sort(), [b.username, c.username].sort());
+  assert.deepEqual(Object.keys(reactions[0].users[0]).sort(), ['avatar', 'display_name', 'id', 'username'], 'solo datos públicos');
+
+  const { pool } = await import('../src/db.js');
+  await pool.execute('UPDATE users SET deleted_at = NOW(), is_active = 0 WHERE id = ?', [c.id]);
+  const after = (await (await call(a, `/posts/${postId}/reactions`)).json()).reactions;
+  assert.deepEqual(after.find((r) => r.emoji === '🔥').users.map((u) => u.username), [b.username]);
+
+  await call(a, `/posts/${postId}`, { method: 'DELETE' });
+  assert.equal((await call(a, `/posts/${postId}/reactions`)).status, 404);
+});
