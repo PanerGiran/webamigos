@@ -160,6 +160,7 @@ function shell(...children) {
       h(
         'nav',
         {},
+        link('/buscar', { className: `navlink${path === '/buscar' ? ' active' : ''}`, title: 'Buscar' }, icon('search')),
         link('/chat', { className: `navlink${path === '/chat' ? ' active' : ''}` }, icon('message'), h('span', { className: 'label' }, 'Chat')),
         me.role === 'admin' && link('/admin', { className: `navlink${path === '/admin' ? ' active' : ''}` }, icon('shield'), h('span', { className: 'label' }, 'Admin')),
         link(`/u/${me.username}`, { className: `navlink me${path === '/perfil' || path === `/u/${me.username}` ? ' active' : ''}`, title: 'Tu perfil' }, avatar(me, 'sm')),
@@ -971,6 +972,43 @@ function profileInfoCard() {
   );
 }
 
+// --- Buscador ---
+
+function searchScreen() {
+  const input = h('input', { type: 'search', placeholder: 'Buscar posts o personas…', value: new URLSearchParams(location.search).get('q') ?? '', autocomplete: 'off', ariaLabel: 'Buscar' });
+  const results = h('div', {});
+  let timer;
+  let seq = 0;
+  async function run() {
+    const q = input.value.trim();
+    history.replaceState(null, '', q ? `/buscar?q=${encodeURIComponent(q)}` : '/buscar'); // al volver atrás se conserva la búsqueda
+    if (q.length < 2) return results.replaceChildren(h('p', { className: 'muted center small' }, 'Escribí al menos 2 letras.'));
+    const mine = ++seq;
+    results.replaceChildren(h('p', { className: 'muted center small' }, 'Buscando…'));
+    try {
+      const { users, posts } = await api(`/search?q=${encodeURIComponent(q)}`);
+      if (mine !== seq) return; // mientras tanto se escribió otra cosa
+      results.replaceChildren(
+        ...[
+          users.length && h('section', { className: 'card' }, h('h2', {}, 'Personas'), ...users.map((u) => profileLink(u, { className: 'person' }, avatar(u, 'sm'), h('span', {}, u.display_name), h('span', { className: 'muted small' }, `@${u.username}`)))),
+          posts.length && h('h2', { className: 'section-title' }, `Posts (${posts.length}${posts.length === 30 ? '+' : ''})`),
+          ...posts.map(postCard),
+          !users.length && !posts.length && emptyState('🔎', 'No encontré nada.', 'Probá con otra palabra.'),
+        ].filter(Boolean),
+      );
+    } catch (err) {
+      if (mine === seq) results.replaceChildren(h('p', { className: 'error center' }, err.message));
+    }
+  }
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(run, 300);
+  };
+  setTimeout(() => input.focus());
+  run();
+  return shell(h('div', { className: 'card search-bar' }, icon('search'), input), results);
+}
+
 // --- Perfil público ---
 
 const profileLink = (user, props, ...children) => link(`/u/${user.username}`, { ...props, title: `Perfil de ${user.display_name}` }, ...children);
@@ -1489,6 +1527,7 @@ async function render() {
     }
   }
   if (path === '/perfil') return root.replaceChildren(...profileScreen());
+  if (path === '/buscar') return root.replaceChildren(...searchScreen());
   const profile = path.match(/^\/u\/([a-z0-9_]{1,32})$/);
   if (profile) {
     let nodes;

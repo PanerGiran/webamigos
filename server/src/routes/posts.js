@@ -187,6 +187,22 @@ router.delete('/posts/:id', async (req, res) => {
   res.status(204).end();
 });
 
+// Buscador: personas (nombre o usuario) y posts (feed y perfiles) cuyo texto contiene lo buscado.
+// La collation de la base ignora mayúsculas y tildes ("cancion" encuentra "canción").
+router.get('/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (q.length < 2 || q.length > 100) return res.status(400).json({ error: 'Buscá con 2 a 100 caracteres.' });
+  const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // % y _ escritos por el usuario no son comodines
+  const [users] = await pool.execute(
+    `SELECT id, username, display_name, avatar FROM users
+      WHERE is_active = 1 AND deleted_at IS NULL AND (display_name LIKE ? OR username LIKE ?)
+      ORDER BY display_name LIMIT 8`,
+    [like, like],
+  );
+  const [posts] = await pool.execute(`${POST_SELECT} WHERE p.deleted_at IS NULL AND p.body LIKE ? ORDER BY p.id DESC LIMIT 30`, [like]);
+  res.json({ users, posts: await decoratePosts(posts, req.user.id) });
+});
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 router.get('/media/:filename', (req, res) => {
   if (!UUID.test(req.params.filename)) return res.status(404).json({ error: 'no existe' });
