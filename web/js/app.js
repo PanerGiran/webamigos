@@ -974,6 +974,11 @@ function coverBox(filename, extra = '') {
 // Las apariencias se definen en css/looks.css y se listan en js/looks.js.
 
 const currentLook = () => localStorage.getItem('look') || 'clasico';
+// La apariencia se guarda también en la cuenta: tu perfil se ve con ella y la recuperás en otro dispositivo.
+const saveLook = (id) => {
+  if (me) me.look = id;
+  api('/me/look', { method: 'PUT', json: { look: id } }).catch(() => {});
+};
 
 // Grilla de apariencias, cada una con una mini vista previa pintada con sus propios colores.
 function lookGrid() {
@@ -988,6 +993,7 @@ function lookGrid() {
           className: `look-option${look.id === currentLook() ? ' selected' : ''}`,
           onclick: () => {
             localStorage.setItem('look', look.id);
+            saveLook(look.id);
             window.applyTheme();
             draw();
           },
@@ -1053,10 +1059,50 @@ function welcomeLookScreen() {
       className: 'primary block',
       onclick: () => {
         localStorage.setItem('look', currentLook()); // si no tocó ninguna, queda la clásica y no se vuelve a preguntar
+        saveLook(currentLook());
         render();
       },
     }, 'Listo'),
   );
+}
+
+// Editar perfil: fondo de pantalla de tu perfil (solo se ve en tu perfil).
+function backgroundField() {
+  let bg = null;
+  const slot = h('div', {});
+  const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
+  function draw() {
+    const preview = h('div', { className: 'bg-preview' });
+    if (bg) imageUrl(bg).then((url) => preview.replaceChildren(h('img', { src: url, alt: '' }))).catch(() => {});
+    slot.replaceChildren(
+      bg ? preview : h('p', { className: 'muted small' }, 'Sin fondo: tu perfil usa el color de tu apariencia.'),
+      h('div', { className: 'actions', style: 'border:0;padding:0;margin-top:8px' },
+        btn('image', bg ? 'Cambiar fondo' : 'Poner fondo', () => file.click(), 'soft sm'),
+        bg && btn('trash', 'Quitar fondo', safe(async () => {
+          if (!confirm('¿Quitar el fondo de tu perfil?')) return;
+          await api('/me/background', { method: 'DELETE' });
+          bg = null;
+          draw();
+          toast('Fondo quitado');
+        }), 'soft danger sm'),
+      ),
+    );
+  }
+  file.onchange = safe(async () => {
+    const f = file.files[0];
+    file.value = '';
+    if (!f) return;
+    if (f.size > MAX_IMAGE) throw new Error('La imagen pasa los 5 MB.');
+    const form = new FormData();
+    form.append('image', f);
+    toast('Subiendo fondo…');
+    bg = (await api('/me/background', { method: 'PUT', form })).profile_bg;
+    draw();
+    toast('Fondo actualizado');
+  });
+  draw();
+  api(`/users/${me.username}`).then(({ user }) => ((bg = user.profile_bg), draw())).catch(() => {});
+  return h('div', { className: 'field' }, h('span', { className: 'field-label' }, 'Fondo de tu perfil'), slot, file);
 }
 
 // Editar perfil: nombre, bio y portada.
@@ -1122,6 +1168,7 @@ function profileInfoCard() {
     },
     h('h2', {}, 'Tu perfil'),
     h('div', { className: 'field' }, h('span', { className: 'field-label' }, 'Portada'), coverSlot, coverFile),
+    backgroundField(),
     label('Nombre visible', name),
     h('label', {}, h('span', {}, 'Bio'), bio, count),
     msg,
@@ -1164,6 +1211,13 @@ function searchScreen() {
   setTimeout(() => input.focus());
   run();
   return shell(h('div', { className: 'card search-bar' }, icon('search'), input), results);
+}
+
+// Fondo de pantalla del perfil (fijo detrás del contenido). Sin foto, el color de fondo de la apariencia del dueño.
+function profileBackground(filename) {
+  const layer = h('div', { className: 'profile-bg' });
+  if (filename) imageUrl(filename).then((url) => layer.replaceChildren(h('img', { src: url, alt: '' }))).catch(() => {});
+  return layer;
 }
 
 // --- Perfil público ---
@@ -1230,7 +1284,9 @@ async function userScreen(username) {
     );
   }
   showTab('profile');
-  return shell(head, tabBar, content);
+  const page = h('div', { className: 'profile-page' }, profileBackground(user.profile_bg), head, tabBar, content);
+  if (user.look) page.dataset.look = user.look;
+  return shell(page);
 }
 
 // --- Perfil ---
@@ -1754,6 +1810,10 @@ async function render() {
     }
   }
   connectLive();
+  if (!localStorage.getItem('look') && me.look) {
+    localStorage.setItem('look', me.look);
+    window.applyTheme();
+  } else if (localStorage.getItem('look') && !me.look) saveLook(localStorage.getItem('look'));
   if (!localStorage.getItem('look')) return root.replaceChildren(welcomeLookScreen());
   if (path === '/perfil') return root.replaceChildren(...profileScreen());
   if (path === '/buscar') return root.replaceChildren(...searchScreen());

@@ -92,3 +92,30 @@ test('perfil: nombre, bio y portada', async () => {
   assert.equal((await perfil()).cover, null);
   assert.equal((await fetch(`${base}/media/${nueva}`, { headers: { authorization: `Bearer ${u.token}` } })).status, 404);
 });
+
+test('perfil: apariencia guardada en la cuenta y fondo del perfil', async () => {
+  const [u, otro] = [await makeUser(), await makeUser()];
+  const perfil = async () => (await (await call(otro, `/users/${u.username}`)).json()).user;
+
+  assert.equal((await call(u, '/me/look', { method: 'PUT', json: { look: 'bosque' } })).status, 204);
+  assert.equal((await (await call(u, '/me')).json()).look, 'bosque', 'vuelve en /me (para otro dispositivo)');
+  assert.equal((await perfil()).look, 'bosque', 'los demás ven tu perfil con tu apariencia');
+  assert.equal((await call(u, '/me/look', { method: 'PUT', json: { look: '<script>' } })).status, 400);
+  assert.equal((await call(u, '/me/look', { method: 'PUT', json: { look: null } })).status, 204, 'se puede borrar');
+
+  const sharp = (await import('sharp')).default;
+  const put = async (c) => {
+    const form = new FormData();
+    form.append('image', new Blob([await sharp({ create: { width: 800, height: 1200, channels: 3, background: c } }).jpeg().toBuffer()], { type: 'image/jpeg' }), 'f.jpg');
+    return fetch(`${base}/me/background`, { method: 'PUT', headers: { authorization: `Bearer ${u.token}` }, body: form });
+  };
+  const media = (f) => fetch(`${base}/media/${f}`, { headers: { authorization: `Bearer ${otro.token}` } });
+  const first = (await (await put('#246')).json()).profile_bg;
+  assert.equal((await perfil()).profile_bg, first);
+  assert.equal((await media(first)).status, 200);
+  const second = (await (await put('#642')).json()).profile_bg;
+  assert.equal((await media(first)).status, 404, 'el fondo viejo se borró');
+  assert.equal((await call(u, '/me/background', { method: 'DELETE' })).status, 204);
+  assert.equal((await perfil()).profile_bg, null);
+  assert.equal((await media(second)).status, 404);
+});

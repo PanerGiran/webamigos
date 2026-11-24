@@ -45,7 +45,7 @@ export async function resetAccess(userId) {
 // También lo va a usar el websocket (fase 3), que recibe el token en el primer mensaje.
 export async function sessionFromToken(token) {
   const [[row]] = await pool.execute(
-    `SELECT s.id AS session_id, u.id, u.username, u.display_name, u.role, u.avatar
+    `SELECT s.id AS session_id, u.id, u.username, u.display_name, u.role, u.avatar, u.look
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > NOW() AND u.is_active = 1`,
     [sha256(token)],

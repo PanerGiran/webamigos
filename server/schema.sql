@@ -18,7 +18,9 @@ CREATE TABLE users (
   notify_chat TINYINT(1) NOT NULL DEFAULT 1,
   bio VARCHAR(300) NULL,                      -- texto corto del perfil
   cover CHAR(36) NULL,                        -- foto de portada (archivo en uploads)
-  notify_mentions TINYINT(1) NOT NULL DEFAULT 1
+  notify_mentions TINYINT(1) NOT NULL DEFAULT 1,
+  look VARCHAR(32) NULL,                       -- apariencia elegida (css/looks.css)
+  profile_bg CHAR(36) NULL                    -- fondo del perfil (archivo en uploads)
 );
 
 CREATE TABLE invites (

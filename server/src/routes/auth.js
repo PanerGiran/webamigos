@@ -143,3 +143,35 @@ router.delete('/me/cover', requireAuth, async (req, res) => {
   await pool.execute('UPDATE users SET cover = NULL WHERE id = ?', [req.user.id]);
   res.status(204).end();
 });
+
+// --- Apariencia de la cuenta y fondo del perfil ---
+
+// La apariencia se guarda en la cuenta: así tu perfil se ve con ella y la recuperás en otro dispositivo.
+router.put('/me/look', requireAuth, async (req, res) => {
+  const look = req.body?.look;
+  if (look !== null && !(typeof look === 'string' && /^[a-z0-9-]{1,32}$/.test(look))) return res.status(400).json({ error: 'apariencia inválida' });
+  await pool.execute('UPDATE users SET look = ? WHERE id = ?', [look, req.user.id]);
+  res.status(204).end();
+});
+
+async function dropBackground(userId) {
+  const [[old]] = await pool.execute('SELECT profile_bg FROM users WHERE id = ?', [userId]);
+  if (!old.profile_bg) return;
+  await removeFile(old.profile_bg);
+  await pool.execute('DELETE FROM media WHERE filename = ?', [old.profile_bg]);
+}
+
+// Fondo del perfil: se guarda como las fotos de los posts (hasta 1600 px, sin metadatos; los GIF siguen animados).
+router.put('/me/background', requireAuth, uploadLimit, upload.single('image'), async (req, res) => {
+  const img = req.file && (await saveImage(req.file.buffer, req.user.id).catch(() => null));
+  if (!img) return res.status(400).json({ error: 'Imagen inválida (JPEG, PNG, WebP o GIF).' });
+  await dropBackground(req.user.id);
+  await pool.execute('UPDATE users SET profile_bg = ? WHERE id = ?', [img.filename, req.user.id]);
+  res.json({ profile_bg: img.filename });
+});
+
+router.delete('/me/background', requireAuth, async (req, res) => {
+  await dropBackground(req.user.id);
+  await pool.execute('UPDATE users SET profile_bg = NULL WHERE id = ?', [req.user.id]);
+  res.status(204).end();
+});

@@ -172,7 +172,7 @@ router.get('/users', async (req, res) => {
 // Perfil público de alguien (las cuentas eliminadas no tienen perfil).
 router.get('/users/:username', async (req, res) => {
   const [[u]] = await pool.execute(
-    `SELECT u.id, u.username, u.display_name, u.avatar, u.avatar_full, u.bio, u.cover, u.role, u.created_at,
+    `SELECT u.id, u.username, u.display_name, u.avatar, u.avatar_full, u.bio, u.cover, u.look, u.profile_bg, u.role, u.created_at,
             SUM(p.scope = 'profile') AS profile_count, SUM(p.scope = 'feed') AS feed_count
        FROM users u LEFT JOIN posts p ON p.user_id = u.id AND p.deleted_at IS NULL
       WHERE u.username = ? AND u.deleted_at IS NULL
