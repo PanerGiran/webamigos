@@ -12,8 +12,11 @@ const WEB_DIR = path.join(import.meta.dirname, '../../web');
 
 export const app = express();
 app.set('trust proxy', 'loopback'); // Apache en la misma máquina: req.ip es la IP real del cliente
-// blob: porque las imágenes se piden con el token (fetch) y se muestran como blob.
-app.use(helmet({ contentSecurityPolicy: { directives: { 'img-src': ["'self'", 'data:', 'blob:'] } } }));
+// Los adjuntos se piden con el token y se muestran como blob.
+app.use(helmet({ contentSecurityPolicy: { directives: {
+  'img-src': ["'self'", 'data:', 'blob:'],
+  'media-src': ["'self'", 'blob:'],
+} } }));
 app.use(express.json({ limit: '10kb' }));
 
 app.use('/api/admin', adminRoutes);

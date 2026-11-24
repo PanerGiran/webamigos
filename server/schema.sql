@@ -103,8 +103,10 @@ CREATE TABLE comments (
   body VARCHAR(1000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   edited_at DATETIME NULL,
+  media_id BIGINT UNSIGNED NULL,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_comments_media FOREIGN KEY (media_id) REFERENCES media(id)
 );
 
 CREATE TABLE reactions (

@@ -49,7 +49,7 @@ export function parseCrop(raw) {
 }
 
 // Revisa el formato real (no el que dice el cliente), endereza según EXIF y guarda WebP sin metadatos (se va el GPS).
-// Devuelve { id, filename } o null si no es una imagen válida.
+// Devuelve los datos de la imagen guardada o null si no es válida.
 export async function saveImage(buffer, userId, { avatar = false, cover = false, crop } = {}) {
   const head = await sharp(buffer, { limitInputPixels: MAX_PIXELS }).metadata().catch(() => null);
   if (!head || !['jpeg', 'png', 'webp', 'gif'].includes(head.format)) return null;
@@ -70,17 +70,27 @@ export async function saveImage(buffer, userId, { avatar = false, cover = false,
     const top = Math.min(crop.top, H - 1);
     pipeline.extract({ left, top, width: Math.min(crop.width, W - left), height: Math.min(crop.height, H - top) });
   }
-  const { data, info } = await pipeline
+  const result = await pipeline
     .resize(crop ? { ...resize, position: 'centre' } : resize)
     .webp({ quality: 82 })
-    .toBuffer({ resolveWithObject: true });
+    .toBuffer({ resolveWithObject: true }).catch(() => null);
+  if (!result) return null;
+  const { data, info } = result;
+  const mime = 'image/webp';
+  const width = info.width;
+  const height = info.pageHeight ?? info.height;
   const filename = crypto.randomUUID();
   await fs.writeFile(path.join(UPLOAD_DIR, filename), data, { flag: 'wx' });
-  const [r] = await pool.execute(
-    'INSERT INTO media (user_id, filename, mime, size_bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, filename, 'image/webp', data.length, info.width, info.pageHeight ?? info.height],
-  );
-  return { id: r.insertId, filename };
+  try {
+    const [r] = await pool.execute(
+      'INSERT INTO media (user_id, filename, mime, size_bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, filename, mime, data.length, width, height],
+    );
+    return { id: r.insertId, filename, mime, width, height };
+  } catch (err) {
+    await removeFile(filename);
+    throw err;
+  }
 }
 
 export const removeFile = (filename) => fs.rm(path.join(UPLOAD_DIR, filename), { force: true });

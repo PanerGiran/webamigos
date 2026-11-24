@@ -204,10 +204,12 @@ router.get('/search', async (req, res) => {
 });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-router.get('/media/:filename', (req, res) => {
+router.get('/media/:filename', async (req, res) => {
   if (!UUID.test(req.params.filename)) return res.status(404).json({ error: 'no existe' });
+  const [[media]] = await pool.execute('SELECT mime FROM media WHERE filename = ?', [req.params.filename]);
+  if (!media) return res.status(404).json({ error: 'no existe' });
   res.sendFile(req.params.filename, {
     root: UPLOAD_DIR,
-    headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=31536000, immutable' },
+    headers: { 'Content-Type': media.mime, 'Cache-Control': 'private, max-age=31536000, immutable' },
   });
 });
