@@ -139,6 +139,7 @@ function openPhoto(src, list = [src], index = 0) {
 
 function go(path) {
   history.pushState(null, '', path);
+  scrollTo(0, 0); // cada pantalla nueva empieza arriba (si no, queda el scroll de la anterior)
   render();
 }
 const link = (href, props, ...children) =>
