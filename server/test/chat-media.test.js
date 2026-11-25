@@ -105,3 +105,24 @@ test('chat: encuestas con votos en vivo', async () => {
   assert.equal((await sendMessage(ana, { poll: ['a', 'b'] })).status, 400, 'sin pregunta');
   assert.equal((await sendMessage(ana, { body: '¿?', poll: ['solo una'] })).status, 400);
 });
+
+test('chat: borrar un mensaje (el autor o un admin) desaparece en vivo y se lleva su adjunto', async () => {
+  const [ana, beto, admin] = [await makeUser(), await makeUser(), await makeUser('admin')];
+  const nextB = await connect(beto);
+  const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#00f' } }).png().toBuffer();
+  const { message } = await (await sendMessage(ana, { body: 'me arrepentí', file: png })).json();
+  const reply = (await (await sendMessage(beto, { body: 'jaja', reply_to: message.id })).json()).message;
+  const del = (u, id) => call(u, `/messages/${id}`, { method: 'DELETE' });
+
+  assert.equal((await del(beto, message.id)).status, 403, 'no es de beto');
+  assert.equal((await del(ana, message.id)).status, 204);
+  assert.equal((await nextB((m) => m.type === 'deleted')).message_id, message.id);
+  const served = await fetch(`${base}/media/${message.media.filename}`, { headers: { authorization: `Bearer ${beto.token}` } });
+  assert.equal(served.status, 404, 'el adjunto ya no está');
+  const { messages } = await (await call(beto, '/messages')).json();
+  assert.ok(!messages.some((m) => m.id === message.id));
+  assert.equal(messages.find((m) => m.id === reply.id).reply, null, 'la respuesta queda sin cita');
+
+  assert.equal((await del(admin, reply.id)).status, 204, 'un admin puede borrar cualquiera');
+  assert.equal((await del(ana, message.id)).status, 404);
+});

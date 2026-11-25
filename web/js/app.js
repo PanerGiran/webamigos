@@ -1801,6 +1801,20 @@ function chatScreen() {
     draw();
     input.focus();
   }
+  // Borrar un mensaje propio (o cualquiera, si sos admin). A los demás les desaparece por el aviso 'deleted'.
+  async function removeMessage(m) {
+    if (!confirm('¿Borrar este mensaje? Se borra para todos.')) return;
+    await api(`/messages/${m.id}`, { method: 'DELETE' });
+    dropMessage(m.id);
+    toast('Mensaje borrado');
+  }
+  function dropMessage(id) {
+    messages = messages.filter((x) => x.id !== id);
+    for (const x of messages) if (x.reply?.id === id) x.reply = null; // las respuestas quedan sin cita
+    if (replyTo?.id === id) cancelReply();
+    activeId = null;
+    draw();
+  }
   // Tocar una cita lleva al mensaje original (si ya está cargado).
   function jumpTo(id) {
     const el = list.querySelector(`[data-id="${id}"]`);
@@ -1849,6 +1863,7 @@ function chatScreen() {
             { className: 'msg-actions' },
             ...EMOJIS.map((e) => h('button', { type: 'button', className: 'emoji', ariaLabel: `Reaccionar con ${e}`, onclick: stop(() => (react(m, e), (activeId = null), draw())) }, e)),
             h('button', { type: 'button', className: 'soft sm', onclick: stop(() => startReply(m)) }, 'Responder'),
+            (mine || me.role === 'admin') && btn('trash', 'Borrar mensaje', stop(safe(() => removeMessage(m))), 'ghost danger sm', { iconOnly: true }),
           ),
       ),
     );
@@ -1915,7 +1930,8 @@ function chatScreen() {
     } else if (msg.type === 'reactions') {
       const m = messages.find((x) => x.id === msg.message_id);
       if (m) (m.reactions = msg.reactions), draw();
-    } else if (msg.type === 'presence') drawOnline(msg.users);
+    } else if (msg.type === 'deleted') dropMessage(msg.message_id);
+    else if (msg.type === 'presence') drawOnline(msg.users);
   };
 
   // Manda un mensaje con foto, audio o encuesta. El texto escrito (si hay) va como epígrafe.

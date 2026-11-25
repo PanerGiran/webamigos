@@ -278,6 +278,32 @@ router.put('/messages/:id/vote', async (req, res) => {
   res.json({ poll });
 });
 
+// Borrar un mensaje del chat (el autor o un admin). Reacciones y encuesta se van con él (ON DELETE CASCADE),
+// las respuestas quedan sin cita y el adjunto se borra del disco. A todos les desaparece en vivo.
+router.delete('/messages/:id', async (req, res) => {
+  const db = await pool.getConnection();
+  let id;
+  try {
+    await db.beginTransaction();
+    const [[m]] = await db.execute('SELECT id, user_id, media_id FROM messages WHERE id = ? FOR UPDATE', [req.params.id]);
+    if (!m || (m.user_id !== req.user.id && req.user.role !== 'admin')) {
+      await db.rollback();
+      return m ? res.status(403).json({ error: 'Solo el autor puede borrarlo.' }) : res.status(404).json({ error: 'no existe' });
+    }
+    await db.execute('DELETE FROM messages WHERE id = ?', [m.id]);
+    if (m.media_id) await removeMedia(m.media_id, db);
+    await db.commit();
+    id = m.id;
+  } catch (err) {
+    await db.rollback();
+    throw err;
+  } finally {
+    db.release();
+  }
+  live.broadcast({ type: 'deleted', message_id: id });
+  res.status(204).end();
+});
+
 // Todas las cuentas activas (para sugerir @menciones).
 router.get('/users', async (req, res) => {
   const [users] = await pool.execute('SELECT id, username, display_name, avatar FROM users WHERE is_active = 1 AND deleted_at IS NULL ORDER BY display_name');

@@ -632,3 +632,24 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 
   .side-open .top .brand { visibility: hidden; }
 }
 @media (prefers-reduced-motion: reduce) { .side, .side-backdrop { transition: none; } }
+
+/* --- Reproductor de audio (estilo mensaje de voz; igual en todos los navegadores) --- */
+.audio-player { display: flex; align-items: center; gap: 10px; width: min(300px, 72vw); max-width: 100%; padding: 2px 0; }
+.audio-play {
+  flex: none; width: 38px; height: 38px; padding: 0; border-radius: 50%;
+  --button-bg: var(--accent); --button-text: var(--bg); --button-border: transparent;
+  --button-hover: color-mix(in srgb, var(--accent) 85%, var(--text)); --button-hover-border: transparent;
+}
+.audio-play .icon { width: 16px; height: 16px; }
+.audio-wave { position: relative; flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 2px; }
+.audio-wave span { flex: 1; height: 30%; min-height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 45%, transparent); transition: background-color 0.1s; }
+.audio-wave span.on { background: var(--accent); }
+/* El control real (accesible, se arrastra) va invisible encima de las barras. */
+.audio-seek { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.audio-seek:focus-visible { opacity: 0.25; }
+.audio-time { flex: none; min-width: 2.6em; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+.audio-speed {
+  flex: none; min-width: 34px; padding: 2px 6px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+  --button-bg: transparent; --button-text: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) { .audio-wave span { transition: none; } }
