@@ -739,7 +739,7 @@ function postFooter(p) {
       fileInput.value = '';
     },
   });
-  const recordBtn = audioRecorder({ onRecorded: setAttachment, onError: (message) => toast(message, 'error') });
+  const recordBtn = audioRecorder({ onRecorded: setAttachment, onError: (message) => toast(message, 'error'), confirm: ['check', 'Adjuntar audio'] });
   const section = h(
     'div',
     { className: 'comments', hidden: true },

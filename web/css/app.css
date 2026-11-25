@@ -291,10 +291,16 @@ button.sm { min-height: 32px; padding: 4px 8px; font-size: 0.85rem; }
 .attachment-photo { display: block; max-width: 100%; padding: 0; border: 0; background: var(--card); border-radius: var(--radius); }
 .attachment-photo img { cursor: zoom-in; }
 .audio-recorder { min-width: 36px; }
-.audio-recorder.recording { color: var(--text); font-variant-numeric: tabular-nums; }
-.audio-recorder.recording::before {
-  content: ''; width: 8px; height: 8px; border-radius: 50%; background: #e33;
-}
+/* Grabando: la barra de grabación ocupa todo el formulario (como en WhatsApp). */
+.is-recording > :not(.rec-bar) { display: none !important; }
+.rec-bar { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; width: 100%; }
+.rec-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--danger); animation: rec-blink 1s ease-in-out infinite; }
+.rec-bar.paused .rec-dot { animation: none; opacity: 0.4; }
+.rec-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rec-state { flex: 1; min-width: 0; color: var(--muted); font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-bar button { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
+@keyframes rec-blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
 
 /* --- Chat --- */
 .chat-main { display: flex; flex-direction: column; height: calc(100dvh - 58px); padding-bottom: max(12px, env(safe-area-inset-bottom)); }

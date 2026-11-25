@@ -158,99 +158,123 @@ const RECORDING_TYPES = [
 ];
 const MAX_RECORDING_MS = 120_000;
 
-export function audioRecorder({ onRecorded, onError }) {
-  const button = document.createElement('button');
+// Grabar un audio. Mientras se graba, una barra ocupa el lugar del formulario (como en WhatsApp):
+// borrar (cancela sin mandar), tiempo, pausar/seguir y enviar. `confirm` es [ícono, texto] del botón de enviar.
+export function audioRecorder({ onRecorded, onError, confirm = ['send', 'Enviar audio'] }) {
+  const button = el('button', 'ghost audio-recorder');
   button.type = 'button';
-  button.className = 'ghost audio-recorder';
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('class', 'icon');
-  svg.setAttribute('aria-hidden', 'true');
-  const use = document.createElementNS(svg.namespaceURI, 'use');
-  svg.append(use);
-  const time = document.createElement('span');
-  button.append(svg, time);
+  button.append(svgIcon('mic'));
+  button.setAttribute('aria-label', 'Grabar audio');
+  button.title = 'Grabar audio';
+  const iconButton = (name, label, className) => {
+    const b = el('button', className);
+    b.type = 'button';
+    b.append(svgIcon(name));
+    b.setAttribute('aria-label', label);
+    b.title = label;
+    return b;
+  };
 
-  function updateButton(recording) {
-    const label = recording ? 'Terminar de grabar' : 'Grabar audio';
-    button.setAttribute('aria-label', label);
-    button.title = label;
-    button.classList.toggle('recording', recording);
-    use.setAttribute('href', recording ? '/icons.svg#stop' : '/icons.svg#mic');
-    time.hidden = !recording;
-  }
-  updateButton(false);
-
-  let recorder;
+  let busy = false;
   button.onclick = async () => {
-    if (recorder) {
-      if (recorder.state === 'recording') recorder.stop();
-      return;
-    }
+    if (busy) return;
     const format = RECORDING_TYPES.find(([type]) => globalThis.MediaRecorder?.isTypeSupported(type));
-    if (!format || !navigator.mediaDevices?.getUserMedia) {
-      onError('Este navegador no permite grabar audio.');
-      return;
-    }
+    if (!format || !navigator.mediaDevices?.getUserMedia) return onError('Este navegador no permite grabar audio.');
     const [mimeType, extension] = format;
-    button.disabled = true;
+    busy = true;
     let stream;
-    let timer;
-    let deadline;
-    const reset = () => {
-      clearInterval(timer);
-      clearTimeout(deadline);
-      stream?.getTracks().forEach((track) => track.stop());
-      recorder = null;
-      button.disabled = false;
-      updateButton(false);
-    };
-
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!button.isConnected) {
-        reset();
-        return;
-      }
-      recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128_000 });
-      const active = recorder;
-      const chunks = [];
-      let failed = false;
-      active.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data);
-      };
-      active.onerror = () => {
-        failed = true;
-        onError('No se pudo grabar el audio.');
-      };
-      active.onstop = async () => {
-        reset();
-        if (failed || !button.isConnected) return;
-        if (!chunks.length) {
-          onError('No se grabó ningún audio.');
-          return;
-        }
-        const file = new File(chunks, `Grabación.${extension}`, { type: active.mimeType || mimeType });
-        // El teléfono a veces graba los tiempos con un salto (2 s que figuran como 2:59): se corrige acá.
-        onRecorded(extension === 'webm' ? new File([fixWebm(new Uint8Array(await file.arrayBuffer()))], file.name, { type: file.type }) : file);
-      };
-      active.start();
-      const startedAt = performance.now();
-      time.textContent = '0:00';
-      updateButton(true);
-      button.disabled = false;
-      const stop = () => {
-        if (active.state === 'recording') active.stop();
-      };
-      deadline = setTimeout(stop, MAX_RECORDING_MS);
-      timer = setInterval(() => {
-        if (!button.isConnected) return stop();
-        const seconds = Math.min(120, Math.floor((performance.now() - startedAt) / 1000));
-        time.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-      }, 250);
     } catch (err) {
-      reset();
-      onError(err.name === 'NotAllowedError' ? 'No diste permiso para usar el micrófono.' : 'No se pudo usar el micrófono.');
+      busy = false;
+      return onError(err.name === 'NotAllowedError' ? 'No diste permiso para usar el micrófono.' : 'No se pudo usar el micrófono.');
     }
+    const host = button.closest('form') ?? button.parentElement;
+    if (!host) {
+      stream.getTracks().forEach((t) => t.stop());
+      busy = false;
+      return;
+    }
+
+    const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128_000 });
+    const chunks = [];
+    let failed = false;
+    let cancelled = false;
+    let recorded = 0; // ms grabados antes de la última pausa
+    let since = performance.now(); // desde cuándo graba (si no está en pausa)
+    const elapsed = () => recorded + (recorder.state === 'recording' ? performance.now() - since : 0);
+
+    const time = el('span', 'rec-time', '0:00');
+    const state = el('span', 'rec-state', 'Grabando…');
+    const cancel = iconButton('trash', 'Borrar grabación', 'ghost danger rec-cancel');
+    const pause = iconButton('pause', 'Pausar grabación', 'soft rec-pause');
+    const send = iconButton(confirm[0], confirm[1], 'primary rec-send');
+    const bar = el('div', 'rec-bar');
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'Grabando audio');
+    bar.append(cancel, el('span', 'rec-dot'), time, state, pause, send);
+    host.append(bar);
+    host.classList.add('is-recording');
+
+    const finish = () => {
+      clearInterval(timer);
+      stream.getTracks().forEach((t) => t.stop());
+      bar.remove();
+      host.classList.remove('is-recording');
+      busy = false;
+    };
+    const stop = () => {
+      if (recorder.state === 'recording') recorded += performance.now() - since; // después de stop, elapsed() ya no lo suma
+      if (recorder.state !== 'inactive') recorder.stop();
+    };
+    const tick = () => {
+      if (!button.isConnected) return (cancelled = true), stop(); // se fue de la pantalla: no se manda
+      const ms = elapsed();
+      if (ms >= MAX_RECORDING_MS) stop();
+      const s = Math.min(MAX_RECORDING_MS / 1000, Math.floor(ms / 1000));
+      time.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    };
+    const timer = setInterval(tick, 250);
+
+    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    recorder.onerror = () => {
+      failed = true;
+      onError('No se pudo grabar el audio.');
+    };
+    recorder.onstop = async () => {
+      finish();
+      if (failed || cancelled) return;
+      if (!chunks.length || elapsed() < 500) return onError('El audio quedó vacío.');
+      const file = new File(chunks, `Grabación.${extension}`, { type: recorder.mimeType || mimeType });
+      // El teléfono a veces graba los tiempos con un salto (2 s que figuran como 2:59): se corrige acá.
+      onRecorded(extension === 'webm' ? new File([fixWebm(new Uint8Array(await file.arrayBuffer()))], file.name, { type: file.type }) : file);
+    };
+
+    cancel.onclick = () => {
+      cancelled = true;
+      stop();
+    };
+    send.onclick = stop;
+    pause.onclick = () => {
+      if (recorder.state === 'recording') {
+        recorder.pause();
+        recorded += performance.now() - since;
+      } else if (recorder.state === 'paused') {
+        recorder.resume();
+        since = performance.now();
+      }
+      const paused = recorder.state === 'paused';
+      bar.classList.toggle('paused', paused);
+      state.textContent = paused ? 'En pausa' : 'Grabando…';
+      const label = paused ? 'Seguir grabando' : 'Pausar grabación';
+      pause.replaceChildren(svgIcon(paused ? 'mic' : 'pause'));
+      pause.setAttribute('aria-label', label);
+      pause.title = label;
+    };
+
+    recorder.start();
+    since = performance.now();
+    send.focus();
   };
   return button;
 }
