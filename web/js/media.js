@@ -12,7 +12,7 @@ export function renderMedia(media, { onOpenPhoto } = {}) {
   if (!['image', 'video', 'audio'].includes(media.kind)) return box;
   if (media.kind === 'audio') {
     imageUrl(media.filename).then((url) => {
-      if (!box.isConnected) return URL.revokeObjectURL(url);
+      if (!box.isConnected) return; // el chat ya lo redibujó: el cuadro nuevo arma el suyo
       box.append(audioPlayer(url));
       audioBoxes.set(media.filename, box);
     }).catch(() => {
@@ -40,10 +40,6 @@ export function renderMedia(media, { onOpenPhoto } = {}) {
   }
 
   imageUrl(media.filename).then((url) => {
-    if (!box.isConnected) {
-      URL.revokeObjectURL(url);
-      return;
-    }
     player.src = url;
     box.append(content);
   }).catch(() => {

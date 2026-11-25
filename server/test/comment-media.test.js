@@ -122,3 +122,19 @@ test('un comentario de solo texto sigue funcionando y no admite texto vacío', a
   assert.equal((await call(user, commentsPath, { json: { body: '' } })).status, 400);
   assert.equal((await call(user, `/comments/${comment.id}`, { method: 'PATCH', json: { body: '' } })).status, 400);
 });
+
+test('borrar el post borra sus comentarios y los adjuntos del disco', async () => {
+  const { user, commentsPath } = await setup();
+  const other = await makeUser();
+  const res = await upload(other, commentsPath, webm, 'audio/webm');
+  assert.equal(res.status, 201);
+  const { comment } = await res.json();
+  const file = path.join(UPLOAD_DIR, comment.media.filename);
+  await fs.access(file); // está en el disco
+
+  const postId = commentsPath.split('/')[2];
+  assert.equal((await call(user, `/posts/${postId}`, { method: 'DELETE' })).status, 204);
+  await assert.rejects(fs.access(file), 'el audio del comentario ya no está en el disco');
+  assert.equal((await call(other, `/media/${comment.media.filename}`)).status, 404);
+  assert.equal((await call(other, `/comments/${comment.id}`, { method: 'DELETE' })).status, 404, 'el comentario se borró');
+});

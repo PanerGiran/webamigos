@@ -230,12 +230,14 @@ router.get('/messages', async (req, res) => {
   res.json(await loadMessages(before > 0 ? 'm.id < ?' : '', before > 0 ? [before] : []));
 });
 
-// Mensaje del chat con foto/audio o con encuesta (los de solo texto van por el WebSocket).
-const chatLimit = rateLimit({ windowMs: 60_000, limit: 20, keyGenerator: (req) => String(req.user.id), standardHeaders: 'draft-8', legacyHeaders: false });
+// Mensaje del chat: texto, foto/audio o encuesta (llega a todos por la conexión en vivo).
+// Hasta 10 cada 10 s por persona, sin importar cuántas pestañas tenga abiertas.
+const chatLimit = rateLimit({ windowMs: 10_000, limit: 10, keyGenerator: (req) => String(req.user.id), message: { error: 'Más despacio 🙂' }, standardHeaders: 'draft-8', legacyHeaders: false });
 router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
   const body = String(req.body?.body ?? '').trim();
   const poll = parsePoll(req.body?.poll);
-  if (body.length > 2000 || poll.error) return res.status(400).json({ error: 'Mensaje o encuesta inválida (2 a 6 opciones distintas).' });
+  if (body.length > 2000) return res.status(400).json({ error: 'El mensaje es muy largo (hasta 2000 caracteres).' });
+  if (poll.error) return res.status(400).json({ error: 'La encuesta necesita de 2 a 6 opciones distintas.' });
   if (poll.options && !body) return res.status(400).json({ error: 'Escribí la pregunta de la encuesta.' });
   if (!body && !req.file && !poll.options) return res.status(400).json({ error: 'El mensaje está vacío.' });
   const replyId = Number.parseInt(req.body?.reply_to, 10);

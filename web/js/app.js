@@ -37,9 +37,6 @@ function btn(iconName, text, onclick, className = 'soft', { iconOnly = false } =
 const label = (text, input) => h('label', {}, h('span', {}, text), input);
 const errorBox = () => h('p', { className: 'error', role: 'alert' });
 
-// Una sola descarga por foto de perfil, aunque aparezca muchas veces en pantalla.
-const avatarUrls = new Map();
-
 // Foto de perfil si hay; si no (o mientras carga), iniciales con un color fijo sacado del nombre de usuario.
 function avatar(user, size = '') {
   const initials = user.display_name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
@@ -47,15 +44,13 @@ function avatar(user, size = '') {
   el.style.setProperty('--h', [...user.username].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7));
   el.setAttribute('aria-hidden', 'true');
   if (user.avatar) {
-    if (!avatarUrls.has(user.avatar)) avatarUrls.set(user.avatar, imageUrl(user.avatar));
-    avatarUrls
-      .get(user.avatar)
+    imageUrl(user.avatar) // una sola descarga por foto, aunque aparezca muchas veces
       .then((url) => {
         const img = h('img', { src: url, alt: '' });
         img.onload = () => hasAlpha(url, img) && el.classList.add('clear');
         el.replaceChildren(img);
       })
-      .catch(() => avatarUrls.delete(user.avatar));
+      .catch(() => {});
   }
   return el;
 }
@@ -203,7 +198,10 @@ async function drawPeople() {
   const list = sidePeople;
   if (!list) return;
   const online = new Set(livePresence.map((u) => u.id));
-  const users = (await loadUsers()).filter((u) => u.id !== me?.id).sort((a, b) => online.has(b.id) - online.has(a.id));
+  let all = await loadUsers();
+  // Se conectó alguien que no está en la lista (una cuenta nueva): se vuelve a pedir, así aparece sin recargar.
+  if ([...online].some((id) => !all.some((u) => u.id === id))) (usersPromise = null), (all = await loadUsers());
+  const users = all.filter((u) => u.id !== me?.id).sort((a, b) => online.has(b.id) - online.has(a.id));
   if (list !== sidePeople) return;
   const path = decodeURIComponent(location.pathname);
   list.replaceChildren(
@@ -560,7 +558,6 @@ function editInPlace(el, current, { maxLength, save }) {
 // Tocar cualquiera abre el visor con todo el álbum.
 function gallery(images, alt) {
   const urls = images.map(() => null);
-  // shortcut: los blobs no se liberan (los usa el visor); con miles de fotos en una sesión, liberar los que salen de pantalla.
   const loads = images.map((img, i) => imageUrl(img.filename).then((url) => (urls[i] = url)));
   const open = async (i) => {
     await Promise.allSettled(loads);
@@ -656,7 +653,7 @@ function postCard(p) {
     );
   }
   if (p.poll) card.append(pollBlock(p));
-  const images = p.images?.length ? p.images : p.filename ? [{ filename: p.filename, width: p.width, height: p.height }] : [];
+  const images = p.images ?? [];
   if (images.length) card.append(gallery(images, p.body ? '' : `Foto de ${p.display_name}`));
   card.append(...postFooter(p));
   return card;
@@ -1934,17 +1931,17 @@ function chatScreen() {
     else if (msg.type === 'presence') drawOnline(msg.users);
   };
 
-  // Manda un mensaje con foto, audio o encuesta. El texto escrito (si hay) va como epígrafe.
+  // Manda un mensaje: texto, o foto/audio/encuesta (el texto escrito, si hay, va como epígrafe o pregunta).
   async function sendExtra({ file, poll, body = input.value.trim() }) {
     const form = new FormData();
     if (body) form.append('body', body);
     if (file) form.append('file', file);
     if (poll) form.append('poll', JSON.stringify(poll));
     if (replyTo) form.append('reply_to', String(replyTo.id));
-    toast(file ? 'Enviando…' : 'Enviando encuesta…');
+    if (file || poll) toast(file ? 'Enviando…' : 'Enviando encuesta…');
     const { message } = await api('/messages', { method: 'POST', form });
     if (!messages.some((m) => m.id === message.id)) messages.push(message), draw('bottom');
-    if (!poll) input.value = '';
+    if (!poll && input.value.trim() === body) input.value = ''; // si ya escribió otra cosa, no se borra
     cancelReply();
   }
   const photoInput = h('input', { type: 'file', accept: 'image/*,audio/*', hidden: true });
@@ -1991,15 +1988,19 @@ function chatScreen() {
     btn('poll', 'Mandar encuesta', pollSheet, 'ghost', { iconOnly: true }),
   );
 
-  const send = () => {
+  const send = safe(async () => {
     const body = input.value.trim();
     if (!body) return;
-    if (!sendLive({ type: 'message', body, ...(replyTo && { reply_to: replyTo.id }) })) return toast('Sin conexión: esperá a que vuelva.', 'error');
-    cancelReply();
     input.value = '';
     input.style.height = '';
     input.focus();
-  };
+    try {
+      await sendExtra({ body });
+    } catch (err) {
+      if (!input.value) input.value = body; // que no se pierda lo escrito
+      throw err;
+    }
+  });
   input.oninput = () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;

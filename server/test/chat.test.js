@@ -36,6 +36,9 @@ function client() {
   return { ws, opened, closed, next, send };
 }
 
+// Los mensajes se mandan por HTTP y llegan a todos por la conexión en vivo.
+const say = (u, body, reply_to) => call(u, '/messages', { json: { body, ...(reply_to && { reply_to }) } });
+
 test('chat: token inválido o sin autenticar → se cierra', async () => {
   const bad = client();
   await bad.opened;
@@ -58,16 +61,16 @@ test('chat: mensajes en vivo, historial y presencia', async () => {
   await b.next('ready');
   await a.next('presence', (m) => m.users.some((u) => u.id === beto.id) && m.users.some((u) => u.id === ana.id));
 
-  a.send({ type: 'message', body: '  hola grupo  ' });
+  assert.equal((await say(ana, '  hola grupo  ')).status, 201);
   const [toA, toB] = await Promise.all([a.next('message'), b.next('message')]);
   assert.equal(toB.message.body, 'hola grupo');
   assert.equal(toB.message.user_id, ana.id);
   assert.equal(toA.message.id, toB.message.id);
 
-  b.send({ type: 'message', body: '   ' });
-  assert.match((await b.next('error')).error, /vacío/);
-  b.send({ type: 'message', body: 'x'.repeat(2001) });
-  await b.next('error');
+  const empty = await say(beto, '   ');
+  assert.equal(empty.status, 400);
+  assert.match((await empty.json()).error, /vacío/);
+  assert.equal((await say(beto, 'x'.repeat(2001))).status, 400);
 
   const { messages } = await (await call(beto, '/messages')).json();
   assert.equal(messages.at(-1).id, toA.message.id, 'quedó en el historial');
@@ -80,16 +83,13 @@ test('chat: mensajes en vivo, historial y presencia', async () => {
   await a.closed;
 });
 
-test('chat: límite de 10 mensajes cada 10 s', async () => {
-  const u = await makeUser();
-  const c = client();
-  await c.opened;
-  c.send({ type: 'auth', token: u.token });
-  await c.next('ready');
-  for (let i = 0; i < 11; i++) c.send({ type: 'message', body: `m${i}` });
-  assert.match((await c.next('error')).error, /despacio/);
-  c.ws.close();
-  await c.closed;
+test('chat: límite de 10 mensajes cada 10 s por persona', async () => {
+  const [u, otro] = [await makeUser(), await makeUser()];
+  for (let i = 0; i < 10; i++) assert.equal((await say(u, `m${i}`)).status, 201);
+  const slow = await say(u, 'uno más');
+  assert.equal(slow.status, 429);
+  assert.match((await slow.json()).error, /despacio/);
+  assert.equal((await say(otro, 'hola')).status, 201, 'a los demás no los frena');
 });
 
 test('chat: responder y reaccionar, en vivo y en el historial', async () => {
@@ -101,18 +101,18 @@ test('chat: responder y reaccionar, en vivo y en el historial', async () => {
   b.send({ type: 'auth', token: beto.token });
   await Promise.all([a.next('ready'), b.next('ready')]);
 
-  a.send({ type: 'message', body: '¿pizza o asado?' });
+  await say(ana, '¿pizza o asado?');
   const original = (await b.next('message', (m) => m.message.body === '¿pizza o asado?')).message;
   assert.equal(original.reply, null);
   assert.deepEqual(original.reactions, []);
 
   // Responder: llega con la cita del original.
-  b.send({ type: 'message', body: 'asado obvio', reply_to: original.id });
+  await say(beto, 'asado obvio', original.id);
   const reply = (await a.next('message', (m) => m.message.body === 'asado obvio')).message;
   assert.deepEqual(reply.reply, { id: original.id, body: '¿pizza o asado?', username: ana.username, display_name: `Test ${ana.username}` });
 
   // Responder a algo que no existe: se manda igual, sin cita.
-  b.send({ type: 'message', body: 'sin cita', reply_to: 999999999 });
+  await say(beto, 'sin cita', 999999999);
   assert.equal((await a.next('message', (m) => m.message.body === 'sin cita')).message.reply, null);
 
   // Reaccionar: a los dos les llega el resumen con quién reaccionó.

@@ -26,8 +26,17 @@ export async function api(path, { method = 'GET', json, form } = {}) {
 }
 
 // Las imágenes exigen sesión, así que no alcanza con <img src>: se piden con el token y se muestran como blob.
-export async function imageUrl(filename) {
-  const res = await fetch(`${API_BASE}/api/media/${filename}`, { headers: authHeader() });
-  if (!res.ok) throw new Error(`Error ${res.status}`);
-  return URL.createObjectURL(await res.blob());
+// Una sola descarga (y un solo blob) por archivo en toda la visita: el chat y el feed se redibujan seguido.
+// Por eso nadie libera estas URLs: las comparten todas las pantallas.
+const urls = new Map();
+export function imageUrl(filename) {
+  if (!urls.has(filename)) {
+    const load = fetch(`${API_BASE}/api/media/${filename}`, { headers: authHeader() }).then(async (res) => {
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      return URL.createObjectURL(await res.blob());
+    });
+    load.catch(() => urls.delete(filename)); // si falló, el próximo intento vuelve a pedirla
+    urls.set(filename, load);
+  }
+  return urls.get(filename);
 }

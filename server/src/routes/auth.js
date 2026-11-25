@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { createSession, hashPassword, requireAuth, sha256, verifyPassword } from '../auth.js';
@@ -11,7 +11,9 @@ export default router;
 // Solo cuentan los intentos fallidos, así el uso normal nunca se bloquea.
 const limits = { windowMs: 15 * 60_000, skipSuccessfulRequests: true, standardHeaders: 'draft-8', legacyHeaders: false };
 const byIp = rateLimit({ ...limits, limit: 20 });
-const byUser = rateLimit({ ...limits, limit: 10, keyGenerator: (req) => String(req.body?.username ?? '').toLowerCase() });
+// Por IP + usuario: contado solo por usuario, cualquiera podía bloquearle el login a otro con 10 intentos.
+// Adivinar desde muchas IPs igual es inviable: claves de 10+ caracteres verificadas con argon2.
+const byUser = rateLimit({ ...limits, limit: 10, keyGenerator: (req) => `${ipKeyGenerator(req.ip)}:${String(req.body?.username ?? '').toLowerCase()}` });
 
 const newPassword = z.string().min(10).max(200);
 const loginBody = z.object({ username: z.string().max(32), password: z.string().max(200) });

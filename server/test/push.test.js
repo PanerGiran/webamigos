@@ -99,7 +99,7 @@ test('push: el chat avisa solo a quien no lo tiene abierto', async () => {
       ws.onmessage = (e) => JSON.parse(e.data).type === 'ready' && resolve(ws);
     });
   const [wsAna, wsCaro] = [await connect(ana), await connect(caro)]; // caro tiene el chat abierto, beto no
-  wsAna.send(JSON.stringify({ type: 'message', body: '¿quién viene?' }));
+  assert.equal((await call(ana, '/messages', { json: { body: '¿quién viene?' } })).status, 201);
   await settle();
   assert.ok(got(epB, `${nameOf(ana)} en el chat`));
   assert.equal(sent.find((s) => s.endpoint === epB && s.title.includes(nameOf(ana))).tag, 'chat');

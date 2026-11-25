@@ -3,6 +3,7 @@ import { parsePoll } from '../polls.js';
 import { pool } from '../db.js';
 import { removeFile, saveImage, UPLOAD_DIR, uploadLimit, uploadPost } from '../images.js';
 import { requireAuth } from '../auth.js';
+import { removeMedia } from '../media.js';
 import { commentCounts, reactionSummary } from './social.js';
 import { mentionedIds, notifyLater, snippet } from '../push.js';
 
@@ -169,8 +170,22 @@ router.delete('/posts/:id', async (req, res) => {
   const [[post]] = await pool.execute('SELECT id, user_id FROM posts WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
   if (!post) return res.status(404).json({ error: 'no existe' });
   if (post.user_id !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'no es tuyo' });
-  await pool.execute('UPDATE posts SET deleted_at = NOW() WHERE id = ?', [post.id]);
-  // Si alguien borra un post, sus fotos no tienen que quedar en el servidor.
+  // Los comentarios de un post borrado ya no se ven: se borran, y sus adjuntos con ellos (del disco y de media).
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    await db.execute('UPDATE posts SET deleted_at = NOW() WHERE id = ?', [post.id]);
+    const [withMedia] = await db.execute('SELECT media_id FROM comments WHERE post_id = ? AND media_id IS NOT NULL FOR UPDATE', [post.id]);
+    await db.execute('DELETE FROM comments WHERE post_id = ?', [post.id]);
+    for (const c of withMedia) await removeMedia(c.media_id, db);
+    await db.commit();
+  } catch (err) {
+    await db.rollback();
+    throw err;
+  } finally {
+    db.release();
+  }
+  // Las fotos del post tampoco quedan en el servidor (la fila de media sigue: post_media la referencia).
   const [files] = await pool.execute('SELECT m.filename FROM post_media pm JOIN media m ON m.id = pm.media_id WHERE pm.post_id = ?', [post.id]);
   for (const f of files) await removeFile(f.filename);
   res.status(204).end();
