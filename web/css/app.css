@@ -629,14 +629,6 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 
 }
 .side-empty { padding: 6px 10px; font-size: 0.88rem; }
 .side-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
-/* Ancho: el panel queda fijo y empuja el contenido (así no tapa el "← Feed" del chat). */
-@media (min-width: 1100px) {
-  .side { z-index: 20; transition: none; }
-  .side-backdrop { display: none; }
-  .side-open body { padding-left: 264px; }
-  .side-open .top-left .side-toggle { display: none; }
-  .side-open .top .brand { visibility: hidden; }
-}
 @media (prefers-reduced-motion: reduce) { .side, .side-backdrop { transition: none; } }
 
 /* --- Reproductor de audio (estilo mensaje de voz; igual en todos los navegadores) --- */

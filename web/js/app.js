@@ -183,15 +183,9 @@ function paintLook(look) {
 }
 
 // --- Panel lateral plegable: accesos, los amigos (con quién está conectado) y opciones rápidas ---
-// En pantallas anchas queda fijo a la izquierda y se recuerda si lo cerraste; en el teléfono se abre encima.
-const wideSide = matchMedia('(min-width: 1100px)');
-const restoreSide = () => document.documentElement.classList.toggle('side-open', wideSide.matches && localStorage.getItem('side') !== '0');
-wideSide.addEventListener('change', restoreSide);
-function toggleSide(open = !document.documentElement.classList.contains('side-open')) {
-  document.documentElement.classList.toggle('side-open', open);
-  if (wideSide.matches) localStorage.setItem('side', open ? '1' : '0');
-}
-document.addEventListener('keydown', (e) => e.key === 'Escape' && !wideSide.matches && document.documentElement.classList.remove('side-open'));
+// Se abre encima del contenido (sin correrlo) y se cierra al elegir algo, al tocar afuera o con Esc.
+const toggleSide = (open = !document.documentElement.classList.contains('side-open')) => document.documentElement.classList.toggle('side-open', open);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && toggleSide(false));
 
 let sidePeople = null; // la lista que está en pantalla; la presencia en vivo la vuelve a pintar
 async function drawPeople() {
@@ -263,7 +257,7 @@ function sidePanel(path) {
 
 function shell(...children) {
   const path = location.pathname;
-  restoreSide();
+  toggleSide(false); // cada pantalla nueva arranca con el panel cerrado
   return [
     ...sidePanel(path),
     h(
