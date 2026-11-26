@@ -1,8 +1,8 @@
 // Service worker mínimo: deja instalar la app y que abra sin conexión.
 // Siempre va primero a la red (así nunca se sirve código viejo después de un deploy);
 // la caché solo se usa si no hay internet. La API y las fotos nunca se guardan (son privadas).
-const CACHE = 'amigos-v13';
-const SHELL = ['/', '/css/app.css', '/css/looks.css', '/js/app.js', '/js/api.js', '/js/media.js', '/js/webm.js', '/js/theme.js', '/js/looks.js', '/icons.svg', '/favicon.svg', '/manifest.webmanifest', '/icons/icon-192.png'];
+const CACHE = 'amigos-v14';
+const SHELL = ['/', '/css/app.css', '/css/looks.css', '/js/app.js', '/js/api.js', '/js/media.js', '/js/webm.js', '/js/theme.js', '/js/looks.js', '/icons.svg', '/fonts/figtree-latin-wght-normal.woff2', '/favicon.svg', '/manifest.webmanifest', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

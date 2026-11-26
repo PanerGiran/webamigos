@@ -20,8 +20,8 @@
   --warn-soft: #faf0d9;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05);
   --radius: 12px;
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --font-title: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font: Figtree, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-title: Figtree, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --card-padding: 16px;
 }
 
@@ -45,8 +45,8 @@
   --warn-soft: #3a2e17;
   --shadow: none;
   --radius: 12px;
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --font-title: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font: Figtree, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-title: Figtree, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --card-padding: 16px;
 }
 
