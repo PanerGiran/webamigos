@@ -292,7 +292,7 @@ function inviteScreen(token) {
   const pw2 = h('input', { type: 'password', required: true, minLength: 10, maxLength: 200, autocomplete: 'new-password' });
   const msg = errorBox();
   return authLayout(
-    '¡Te invitaron! Elegí tu contraseña para entrar.',
+    'Te invitaron al grupo. Elegí tu contraseña para entrar.',
     h(
       'form',
       {
@@ -424,7 +424,7 @@ function composer(onPosted, { scope = 'feed', placeholder = `¿Qué contás, ${m
         text.style.height = '';
         clear();
         togglePoll(false);
-        toast('¡Publicado!');
+        toast('Publicado');
         onPosted();
       }),
     },
@@ -834,7 +834,7 @@ function commentRow(c, onDeleted) {
   return row;
 }
 
-const emptyState = (emoji, title, sub) => h('div', { className: 'empty' }, h('div', { className: 'big' }, emoji), h('p', {}, title), sub && h('p', { className: 'muted' }, sub));
+const emptyState = (iconName, title, sub) => h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, icon(iconName)), h('p', {}, title), sub && h('p', { className: 'muted' }, sub));
 
 // Lista de posts con paginación infinita. `query`: filtros extra para /api/posts (ej. 'user=juli&scope=profile').
 function postList(query, empty) {
@@ -874,7 +874,7 @@ function postList(query, empty) {
 }
 
 function feedScreen() {
-  const { list, status } = postList('', emptyState('📸', 'Todavía no hay nada.', '¡Subí el primer meme!'));
+  const { list, status } = postList('', emptyState('image', 'Todavía no hay nada en el feed', 'Lo primero que publiques lo ve todo el grupo'));
   return shell(...[installCard(true), pushNudge(), composer(render), list, status].filter(Boolean));
 }
 
@@ -922,7 +922,7 @@ addEventListener('beforeinstallprompt', (e) => {
 addEventListener('appinstalled', () => {
   installPrompt = null;
   refreshInstallCards();
-  toast('¡App instalada!');
+  toast('App instalada');
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
@@ -1209,8 +1209,8 @@ function welcomeLookScreen() {
   return h(
     'main',
     { className: 'welcome' },
-    h('h1', {}, `¡Hola, ${me.display_name.split(' ')[0]}!`),
-    h('p', { className: 'muted' }, 'Elegí cómo querés ver Amigos. Lo podés cambiar cuando quieras desde Editar perfil.'),
+    h('h1', {}, 'Elegí cómo se ve Amigos'),
+    h('p', { className: 'muted' }, `${me.display_name.split(' ')[0]}, la podés cambiar cuando quieras desde Editar perfil.`),
     lookGrid(),
     h('h3', { className: 'subhead' }, 'Modo'),
     modeTabs(),
@@ -1356,7 +1356,7 @@ function searchScreen() {
           users.length && h('section', { className: 'card' }, h('h2', {}, 'Personas'), ...users.map((u) => profileLink(u, { className: 'person' }, avatar(u, 'sm'), h('span', {}, u.display_name), h('span', { className: 'muted small' }, `@${u.username}`)))),
           posts.length && h('h2', { className: 'section-title' }, `Posts (${posts.length}${posts.length === 30 ? '+' : ''})`),
           ...posts.map(postCard),
-          !users.length && !posts.length && emptyState('🔎', 'No encontré nada.', 'Probá con otra palabra.'),
+          !users.length && !posts.length && emptyState('search', 'No encontré nada', 'Probá con otra palabra'),
         ].filter(Boolean),
       );
     } catch (err) {
@@ -1435,8 +1435,8 @@ async function userScreen(username) {
     );
     const empty =
       scope === 'profile'
-        ? emptyState('🪴', isMe ? 'Tu perfil está vacío.' : `${first} todavía no publicó nada en su perfil.`, isMe && 'Lo que publiques acá no sale en el feed.')
-        : emptyState('📭', isMe ? 'No publicaste nada en el feed.' : `${first} no publicó nada en el feed.`);
+        ? emptyState('edit', isMe ? 'Tu perfil está vacío' : `${first} todavía no publicó nada en su perfil`, isMe && 'Lo que publiques acá no sale en el feed')
+        : emptyState('image', isMe ? 'No publicaste nada en el feed' : `${first} no publicó nada en el feed`);
     const { list, status } = postList(`user=${encodeURIComponent(user.username)}&scope=${scope}`, empty);
     content.replaceChildren(
       ...[isMe && scope === 'profile' && composer(render, { scope: 'profile', placeholder: 'Publicá algo en tu perfil…' }), list, status].filter(Boolean),
@@ -1869,7 +1869,7 @@ function chatScreen() {
     list.replaceChildren(
       ...[
         more && olderBtn,
-        !messages.length && h('div', { className: 'empty' }, h('div', { className: 'big' }, '💬'), h('p', {}, 'Nadie escribió todavía.'), h('p', { className: 'muted' }, '¡Rompé el hielo!')),
+        !messages.length && emptyState('message', 'Nadie escribió todavía', 'El primer mensaje lo ve todo el grupo'),
         ...messages.map((m, i) => bubble(m, messages[i - 1])),
       ].filter(Boolean),
     );
@@ -2064,7 +2064,7 @@ async function render() {
         h(
           'div',
           { className: 'auth' },
-          h('div', { className: 'auth-box card center' }, emptyState('📡', navigator.onLine ? err.message : 'Sin conexión', 'Cuando vuelva internet, probá de nuevo.'), h('button', { className: 'primary', onclick: () => location.reload() }, 'Reintentar')),
+          h('div', { className: 'auth-box card center' }, emptyState('wifi-off', navigator.onLine ? err.message : 'Sin conexión', 'Cuando vuelva internet, probá de nuevo'), h('button', { className: 'primary', onclick: () => location.reload() }, 'Reintentar')),
         ),
       );
     }
@@ -2083,7 +2083,7 @@ async function render() {
     try {
       nodes = await userScreen(profile[1]);
     } catch (err) {
-      nodes = shell(h('section', { className: 'card' }, emptyState('🤷', err.message, 'Puede que la cuenta ya no exista.')));
+      nodes = shell(h('section', { className: 'card' }, emptyState('user', err.message, 'Puede que la cuenta ya no exista')));
     }
     // Si mientras cargaba se navegó a otra pantalla, no pisarla.
     if (location.pathname !== path) return;

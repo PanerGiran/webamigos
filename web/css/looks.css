@@ -1,48 +1,52 @@
 /* Cada bloque incluye la paleta completa para que funcione también en las vistas previas. */
 
 [data-look="clasico"] {
-  --bg: #f6f5fb;
+  --bg: #f6f5f2;
   --card: #ffffff;
-  --text: #1b1a23;
-  --muted: #5c596c;
-  --line: #dfdcea;
-  --field: #eeecf5;
-  --accent: #5140c9;
-  --accent-soft: #e9e4ff;
-  --brand: #5140c9;
-  --danger: #962438;
-  --danger-soft: #fae4e7;
-  --ok: #215c3c;
-  --ok-soft: #dff2e6;
-  --warn: #674400;
-  --warn-soft: #f9edcd;
-  --shadow: 0 1px 2px rgb(30 25 60 / 0.08);
+  --text: #1c1b19;
+  --muted: #66625b;
+  --line: #e4e2dc;
+  --field: #efeeea;
+  --accent: #c2541c;
+  --accent-soft: #fbeadf;
+  --brand: #c2541c;
+  --primary: #1c1b19;
+  --on-primary: #ffffff;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --ok: #1f6b45;
+  --ok-soft: #e3f3ea;
+  --warn: #7a5200;
+  --warn-soft: #faf0d9;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05);
   --radius: 12px;
-  --font: system-ui, "Segoe UI", sans-serif;
-  --font-title: var(--font);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-title: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --card-padding: 16px;
 }
 
 [data-look="clasico"].dark, .dark [data-look="clasico"] {
-  --bg: #0f0f14;
-  --card: #18181f;
-  --text: #eeedf3;
-  --muted: #aaa7ba;
-  --line: #343341;
-  --field: #23232d;
-  --accent: #b0a6ff;
-  --accent-soft: #2c2649;
-  --brand: #b0a6ff;
-  --danger: #ffabb5;
-  --danger-soft: #3e242b;
-  --ok: #91ddb3;
-  --ok-soft: #20382f;
-  --warn: #ffd077;
-  --warn-soft: #3d3019;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  --bg: #141413;
+  --card: #1b1a19;
+  --text: #edebe6;
+  --muted: #a39f97;
+  --line: #312f2c;
+  --field: #252422;
+  --accent: #f0875a;
+  --accent-soft: #3a2419;
+  --brand: #f0875a;
+  --primary: #edebe6;
+  --on-primary: #141413;
+  --danger: #f2767a;
+  --danger-soft: #3a1c1d;
+  --ok: #6fcf97;
+  --ok-soft: #1b3326;
+  --warn: #e9b75a;
+  --warn-soft: #3a2e17;
+  --shadow: none;
   --radius: 12px;
-  --font: system-ui, "Segoe UI", sans-serif;
-  --font-title: var(--font);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-title: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --card-padding: 16px;
 }
 
@@ -56,6 +60,8 @@
   --accent: #284a77;
   --accent-soft: #e0e8f3;
   --brand: #284a77;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #962438;
   --danger-soft: #fae4e7;
   --ok: #215c3c;
@@ -79,6 +85,8 @@
   --accent: #aec9f1;
   --accent-soft: #2f3d52;
   --brand: #aec9f1;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #ffabb5;
   --danger-soft: #3e242b;
   --ok: #91ddb3;
@@ -102,6 +110,8 @@
   --accent: #8d3e29;
   --accent-soft: #f6dfd2;
   --brand: #8d3e29;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #962438;
   --danger-soft: #fae4e7;
   --ok: #215c3c;
@@ -125,6 +135,8 @@
   --accent: #ffaf93;
   --accent-soft: #503127;
   --brand: #ffaf93;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #ffabb5;
   --danger-soft: #3e242b;
   --ok: #91ddb3;
@@ -148,6 +160,8 @@
   --accent: #24593d;
   --accent-soft: #d8eadb;
   --brand: #24593d;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #962438;
   --danger-soft: #fae4e7;
   --ok: #215c3c;
@@ -171,6 +185,8 @@
   --accent: #a0d9ae;
   --accent-soft: #2b4834;
   --brand: #a0d9ae;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #ffabb5;
   --danger-soft: #3e242b;
   --ok: #91ddb3;
@@ -194,6 +210,8 @@
   --accent: #003fa5;
   --accent-soft: #dce8ff;
   --brand: #003fa5;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #962438;
   --danger-soft: #fae4e7;
   --ok: #215c3c;
@@ -217,6 +235,8 @@
   --accent: #94bcff;
   --accent-soft: #182a49;
   --brand: #94bcff;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #ffabb5;
   --danger-soft: #3e242b;
   --ok: #91ddb3;
@@ -240,6 +260,8 @@
   --accent: #684500;
   --accent-soft: #f1dfac;
   --brand: #684500;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #962438;
   --danger-soft: #fae4e7;
   --ok: #215c3c;
@@ -263,6 +285,8 @@
   --accent: #ffcd65;
   --accent-soft: #3c3016;
   --brand: #ffcd65;
+  --primary: var(--accent);
+  --on-primary: var(--bg);
   --danger: #ffabb5;
   --danger-soft: #3e242b;
   --ok: #91ddb3;
@@ -306,7 +330,7 @@
 }
 
 .look-option.selected .look-name { color: var(--accent); }
-.look-name { font-size: 0.9rem; font-weight: 700; }
+.look-name { font-size: 0.9rem; font-weight: 600; }
 .look-desc { color: var(--muted); font-size: 0.8rem; font-weight: 400; line-height: 1.35; }
 
 .look-preview {
@@ -328,11 +352,117 @@
   box-shadow: var(--shadow);
 }
 
-.lp-title { color: var(--text); font: 700 0.78rem/1.2 var(--font-title); }
+.lp-title { color: var(--text); font: 600 0.78rem/1.2 var(--font-title); }
 .lp-line { width: 78%; height: 2px; background: var(--muted); }
 .lp-line + .lp-line { width: 54%; }
 .lp-button {
   width: 28px; height: 8px; margin-top: 4px;
-  background: var(--accent);
+  background: var(--primary);
   border-radius: min(3px, var(--radius));
 }
+
+/* --- "Hecho por IA": en broma. Junta a propósito todo lo que las otras apariencias evitan:
+   degradados violeta a rosa, brillos, texto con degradado, vidrio esmerilado y ✨ en todo. --- */
+[data-look="ia"] {
+  --bg: #f3eeff;
+  --card: rgb(255 255 255 / 0.72);
+  --text: #1e1240;
+  --muted: #5f4f94;
+  --line: #d8c9ff;
+  --field: #ece4ff;
+  --accent: #7c3aed;
+  --accent-soft: #ebe1ff;
+  --brand: #7c3aed;
+  --primary: #7c3aed;
+  --on-primary: #ffffff;
+  --danger: #be123c;
+  --danger-soft: #ffe4ec;
+  --ok: #047857;
+  --ok-soft: #d9f7ea;
+  --warn: #92400e;
+  --warn-soft: #fdecc8;
+  --shadow: 0 8px 30px rgb(124 58 237 / 0.18), 0 0 0 1px rgb(168 85 247 / 0.18);
+  --radius: 22px;
+  --font: system-ui, "Segoe UI", sans-serif;
+  --font-title: system-ui, "Segoe UI", sans-serif;
+  --card-padding: 20px;
+}
+
+[data-look="ia"].dark, .dark [data-look="ia"] {
+  --bg: #0b0720;
+  --card: rgb(28 18 66 / 0.72);
+  --text: #f3eeff;
+  --muted: #b9abef;
+  --line: #3e2c7a;
+  --field: #22174d;
+  --accent: #b69cff;
+  --accent-soft: #2e1f63;
+  --brand: #b69cff;
+  --primary: #a78bfa;
+  --on-primary: #0b0720;
+  --danger: #ff8fab;
+  --danger-soft: #3d1630;
+  --ok: #6ee7b7;
+  --ok-soft: #123a33;
+  --warn: #fcd34d;
+  --warn-soft: #3b2f12;
+  --shadow: 0 0 28px rgb(139 92 246 / 0.35), 0 0 0 1px rgb(167 139 250 / 0.25);
+  --radius: 22px;
+  --font: system-ui, "Segoe UI", sans-serif;
+  --font-title: system-ui, "Segoe UI", sans-serif;
+  --card-padding: 20px;
+}
+
+/* Manchas de color de fondo, fijas detrás de todo. */
+[data-look="ia"] body {
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgb(168 85 247 / 0.35), transparent 62%),
+    radial-gradient(800px 480px at 100% 0%, rgb(59 130 246 / 0.28), transparent 60%),
+    radial-gradient(700px 520px at 50% 110%, rgb(236 72 153 / 0.22), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+[data-look="ia"] .top { background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(14px); }
+[data-look="ia"] :is(.card, .side, .chat-list, .live-toast, .sheet) { backdrop-filter: blur(16px) saturate(1.4); }
+
+/* Logo con degradado, brillo y su chispita. */
+[data-look="ia"] .brand {
+  background: linear-gradient(90deg, #a855f7, #ec4899 55%, #3b82f6);
+  -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800;
+}
+[data-look="ia"] .brand-mark { background: linear-gradient(135deg, #a855f7, #ec4899, #3b82f6); box-shadow: 0 0 18px rgb(168 85 247 / 0.7); }
+[data-look="ia"] .top-left::after, [data-look="ia"] .side-head::after { content: '✨'; font-size: 1.1rem; }
+[data-look="ia"] :is(h1, .page-title) {
+  background: linear-gradient(90deg, #7c3aed, #db2777 60%, #2563eb);
+  -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; letter-spacing: -0.04em;
+}
+[data-look="ia"].dark :is(h1, .page-title) { background-image: linear-gradient(90deg, #c4b5fd, #f9a8d4 60%, #93c5fd); }
+
+/* Botones con degradado que "respira". */
+[data-look="ia"] :where(button:not([class]), button[class=""], button.primary) {
+  background-image: linear-gradient(90deg, #8b5cf6, #ec4899);
+  border-color: transparent; color: #fff; border-radius: 999px;
+  box-shadow: 0 6px 22px rgb(168 85 247 / 0.45);
+  animation: ia-glow 2.4s ease-in-out infinite;
+}
+@keyframes ia-glow { 50% { box-shadow: 0 6px 34px rgb(236 72 153 / 0.65); } }
+[data-look="ia"] :is(.badge, .live-tag, .tab .count) {
+  background: linear-gradient(90deg, #8b5cf6, #ec4899); color: #fff; border-radius: 999px; box-shadow: 0 0 12px rgb(236 72 153 / 0.5);
+}
+[data-look="ia"] .navlink[href="/chat"]::after {
+  content: 'Nuevo ✨'; padding: 1px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; color: #fff;
+  background: linear-gradient(90deg, #8b5cf6, #ec4899);
+}
+[data-look="ia"] .avatar { box-shadow: 0 0 0 2px #c084fc, 0 0 14px rgb(192 132 252 / 0.7); }
+[data-look="ia"] .msg.mine .bubble { background: linear-gradient(135deg, #8b5cf6, #ec4899); color: #fff; }
+[data-look="ia"] .msg.mine .bubble :is(time, .poll-pct) { color: rgb(255 255 255 / 0.8); }
+[data-look="ia"] .audio-wave span.on { background: linear-gradient(#a855f7, #ec4899); }
+[data-look="ia"] { scrollbar-color: #c084fc transparent; }
+[data-look="ia"] ::-webkit-scrollbar-thumb { background: linear-gradient(#a855f7, #ec4899); background-clip: padding-box; }
+@media (prefers-reduced-motion: reduce) { [data-look="ia"] :where(button) { animation: none; } }
+
+/* Su vista previa en el selector. */
+.look-preview[data-look="ia"] { background: linear-gradient(135deg, #ede4ff, #fce7f3 55%, #dbeafe); }
+.dark .look-preview[data-look="ia"] { background: linear-gradient(135deg, #1e1048, #3b0d3a 55%, #0f1e4a); }
+.look-preview[data-look="ia"] .lp-title { background: linear-gradient(90deg, #7c3aed, #db2777); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.look-preview[data-look="ia"] .lp-button { background: linear-gradient(90deg, #8b5cf6, #ec4899); box-shadow: 0 0 10px rgb(236 72 153 / 0.7); border-radius: 999px; }
