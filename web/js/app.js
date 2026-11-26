@@ -117,7 +117,10 @@ lightbox.addEventListener('touchend', (e) => {
 const sheetBody = h('div', { className: 'sheet-body' });
 const sheetTitle = h('h2', {});
 const sheet = h('dialog', { className: 'sheet' }, h('div', { className: 'sheet-head' }, sheetTitle), sheetBody);
-sheet.onclick = (e) => e.target === sheet && sheet.close();
+// Con llaves: si un onclick devuelve false, el navegador cancela el clic (y no se abren, por ejemplo, los selectores de archivos).
+sheet.onclick = (e) => {
+  if (e.target === sheet) sheet.close();
+};
 document.body.append(sheet);
 function openSheet(title, ...children) {
   sheetTitle.textContent = title;
@@ -236,7 +239,7 @@ function sidePanel(path) {
     h(
       'aside',
       // Elegir algo cierra el panel (también en la compu, y queda cerrado hasta que lo vuelvas a abrir).
-      { className: 'side', ariaLabel: 'Menú', onclick: (e) => e.target.closest('a') && toggleSide(false) },
+      { className: 'side', ariaLabel: 'Menú', onclick: (e) => void (e.target.closest('a') && toggleSide(false)) },
       h('div', { className: 'side-head' }, link('/', { className: 'brand' }, brandMark(), 'Amigos'), close),
       link(`/u/${me.username}`, { className: `side-me${path === `/u/${me.username}` ? ' active' : ''}` }, avatar(me), h('span', { className: 'side-who' }, h('strong', {}, me.display_name), h('small', {}, 'Ver mi perfil'))),
       h(
@@ -1999,10 +2002,12 @@ function chatScreen() {
     const grid = h('div', { className: 'sticker-grid' });
     const msg = errorBox();
     let stickers = [];
-    const fileInput = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
+    // "Agregar" es un <label> con el input adentro: tocarlo abre el selector de forma nativa. Con input.click()
+    // desde un panel modal, algunos navegadores de teléfono no lo abren.
+    const fileInput = h('input', { type: 'file', accept: 'image/*', className: 'visually-hidden' });
     const draw = () =>
       grid.replaceChildren(
-        h('button', { type: 'button', className: 'sticker-pick sticker-add', onclick: () => fileInput.click() }, icon('image'), h('span', {}, 'Agregar')),
+        h('label', { className: 'sticker-pick sticker-add' }, icon('image'), h('span', {}, 'Agregar'), fileInput),
         ...stickers.map((s) =>
           h(
             'div',
@@ -2034,7 +2039,7 @@ function chatScreen() {
       draw();
       toast('Sticker agregado');
     });
-    openSheet('Stickers', h('div', {}, h('p', { className: 'muted small sticker-hint' }, 'Los sube cualquiera del grupo y los pueden mandar todos'), grid, fileInput, msg));
+    openSheet('Stickers', h('div', {}, h('p', { className: 'muted small sticker-hint' }, 'Los sube cualquiera del grupo y los pueden mandar todos'), grid, msg));
     draw();
     api('/stickers').then((r) => ((stickers = r.stickers), draw())).catch((err) => (msg.textContent = err.message));
   }

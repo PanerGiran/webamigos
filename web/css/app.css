@@ -694,6 +694,14 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 4
 .sticker-cell { position: relative; }
 .sticker-pick { width: 100%; aspect-ratio: 1; padding: 8px; --button-bg: var(--field); --button-border: transparent; }
 .sticker-pick .sticker-img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.sticker-add { flex-direction: column; gap: 4px; font-size: 0.8125rem; color: var(--muted); --button-bg: transparent; --button-border: var(--line); }
+.sticker-add {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  font-size: 0.8125rem; color: var(--muted); border: 1px solid var(--line); border-radius: min(8px, var(--radius)); cursor: pointer;
+  transition: background-color 0.15s var(--ease);
+}
+.sticker-add:hover { background: var(--field); }
+.sticker-add:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Oculto a la vista pero enfocable con el teclado (Enter o espacio abren el selector). */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; opacity: 0; }
 .sticker-remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; min-height: 0; padding: 0; border-radius: 50%; --button-bg: var(--card); --button-border: var(--line); }
 .sticker-remove .icon { width: 14px; height: 14px; }
