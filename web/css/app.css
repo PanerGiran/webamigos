@@ -663,14 +663,16 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 4
 @media (prefers-reduced-motion: reduce) { .side, .side-backdrop { transition: none; } }
 
 /* --- Reproductor de audio (estilo mensaje de voz; igual en todos los navegadores) --- */
-.audio-player { display: flex; align-items: center; gap: 12px; width: min(300px, 72vw); max-width: 100%; padding: 2px 0; }
+.audio-player { display: flex; align-items: center; gap: 8px; width: min(300px, 72vw); max-width: 100%; padding: 2px 0; }
+/* En el teléfono el globo con audio puede ser más ancho; si no, la forma de onda queda sin lugar. */
+.msg:has(.audio-player) { max-width: 92%; }
 .audio-play {
   flex: none; width: 36px; height: 36px; padding: 0; border-radius: 50%;
   --button-bg: var(--primary); --button-text: var(--on-primary); --button-border: transparent;
   --button-hover: color-mix(in srgb, var(--primary) 86%, var(--bg)); --button-hover-border: transparent;
 }
 .audio-play .icon { width: 16px; height: 16px; }
-.audio-wave { position: relative; flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 2px; }
+.audio-wave { position: relative; flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 1px; }
 .audio-wave span { flex: 1; height: 30%; min-height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 45%, transparent); transition: background-color 0.1s; }
 .audio-wave span.on { background: var(--accent); }
 /* El control real (accesible, se arrastra) va invisible encima de las barras. */
@@ -742,7 +744,8 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 4
 .sv-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
 .sv-caption { position: absolute; left: 16px; right: 16px; bottom: 16px; padding: 8px 12px; border-radius: 8px; background: rgb(0 0 0 / 0.55); color: #fff; text-align: center; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sv-text { padding: 24px; font-size: 1.5rem; font-weight: 500; line-height: 1.3; text-align: center; white-space: pre-wrap; overflow-wrap: anywhere; }
-.sv-foot { display: flex; justify-content: center; gap: 8px; padding: 12px 8px max(12px, env(safe-area-inset-bottom)); }
+.sv-foot { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+.sv-emojis { display: flex; justify-content: center; gap: 8px; }
 .sv-emoji { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 1.35rem; --button-bg: rgb(255 255 255 / 0.1); --button-border: transparent; --button-hover: rgb(255 255 255 / 0.2); --button-press: rgb(255 255 255 / 0.3); }
 .sv-emoji.on { --button-bg: rgb(255 255 255 / 0.32); }
 .sv-views { --button-bg: rgb(255 255 255 / 0.1); --button-border: transparent; --button-text: #fff; --button-hover: rgb(255 255 255 / 0.2); --button-press: rgb(255 255 255 / 0.3); }
@@ -757,3 +760,20 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 4
 .sc-colors { display: flex; justify-content: center; gap: 8px; margin: 12px 0; }
 .sc-color { width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; --button-border: var(--card); box-shadow: 0 0 0 1px var(--line); }
 .sc-color.on { box-shadow: 0 0 0 2px var(--text); }
+
+/* --- Historias: responder en el grupo --- */
+.sv-reply { display: flex; align-items: center; gap: 4px; width: 100%; }
+.sv-reply-input { flex: 1; min-width: 0; padding: 10px 16px; border-radius: 999px; background: transparent; color: #fff; border: 1px solid rgb(255 255 255 / 0.45); }
+.sv-reply-input::placeholder { color: rgb(255 255 255 / 0.7); }
+.sv-reply-input:focus { background: rgb(255 255 255 / 0.08); border-color: #fff; }
+/* Tarjeta "respondió a la historia de…" en el chat */
+.story-quote {
+  display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 4px; padding: 4px 8px 4px 4px; text-align: left;
+  font-weight: 400; --button-bg: var(--card); --button-border: var(--line); border-left: 3px solid var(--accent);
+}
+.story-quote.gone { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: min(8px, var(--radius)); }
+.sq-thumb { display: grid; place-items: center; flex: none; width: 32px; height: 44px; overflow: hidden; border-radius: 4px; background: var(--field); font-size: 0.75rem; font-weight: 600; }
+.sq-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.sq-text { display: flex; flex-direction: column; min-width: 0; font-size: 0.8125rem; line-height: 1.3; }
+.sq-text strong { font-weight: 600; }
+.sq-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

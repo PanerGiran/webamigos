@@ -98,3 +98,30 @@ test('historias: borrar y vencer se llevan la foto', async () => {
   assert.equal(gone.n, 0);
   await assert.rejects(fs.access(fileC));
 });
+
+test('historias: responder en el chat del grupo, también después de que vence', async () => {
+  const [ana, beto] = [await makeUser(), await makeUser()];
+  const png = await sharp({ create: { width: 30, height: 40, channels: 3, background: '#0a0' } }).png().toBuffer();
+  const id = (await (await story(ana, { image: png, body: 'mi perro' })).json()).id;
+  const say = (u, json) => call(u, '/messages', { json });
+
+  let res = await say(beto, { body: '¡qué lindo!', story_id: id });
+  assert.equal(res.status, 201);
+  const { message } = await res.json();
+  assert.equal(message.body, '¡qué lindo!');
+  assert.deepEqual(
+    [message.story.id, message.story.user_id, message.story.display_name, message.story.body, message.story.image.height],
+    [id, ana.id, `Test ${ana.username}`, 'mi perro', 40],
+  );
+  assert.equal((await say(beto, { story_id: id })).status, 400, 'sin texto');
+  assert.equal((await say(beto, { body: 'hola', story_id: 999999999 })).status, 400, 'historia que no existe');
+
+  // Vence: el mensaje sigue en el chat y dice de quién era, pero ya sin la historia.
+  await pool.execute('UPDATE stories SET expires_at = NOW() - INTERVAL 1 MINUTE WHERE id = ?', [id]);
+  assert.equal((await say(beto, { body: 'tarde', story_id: id })).status, 400, 'a una vencida no se responde');
+  await cleanStories();
+  const { messages } = await (await call(ana, '/messages')).json();
+  const kept = messages.find((m) => m.id === message.id);
+  assert.equal(kept.body, '¡qué lindo!');
+  assert.deepEqual([kept.story.id, kept.story.user_id, kept.story.image], [null, ana.id, null]);
+});

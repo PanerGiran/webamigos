@@ -107,3 +107,20 @@ test('push: el chat avisa solo a quien no lo tiene abierto', async () => {
   wsAna.close();
   wsCaro.close();
 });
+
+test('push: responder una historia le avisa a su dueño (aunque tenga apagado el chat)', async () => {
+  const [ana, beto, caro] = [await makeUser(), await makeUser(), await makeUser()];
+  const [epA, epC] = [await subscribe(ana), await subscribe(caro)];
+  await call(caro, '/me/notifications', { method: 'PATCH', json: { chat: true } });
+  await call(ana, '/me/notifications', { method: 'PATCH', json: { chat: false } });
+  const form = new FormData();
+  form.append('body', 'mi historia');
+  const { id } = await (await fetch(`${base}/stories`, { method: 'POST', headers: { authorization: `Bearer ${ana.token}` }, body: form })).json();
+  await settle();
+  sent.length = 0;
+  assert.equal((await call(beto, '/messages', { json: { body: 'jaja buenísima', story_id: id } })).status, 201);
+  await settle();
+  assert.ok(got(epA, `${nameOf(beto)} respondió a tu historia`), 'ana: aviso de respuesta (tiene el chat apagado)');
+  assert.ok(!got(epA, `${nameOf(beto)} en el chat`), 'y no el general');
+  assert.ok(got(epC, `${nameOf(beto)} en el chat`), 'al resto le llega como un mensaje más del chat');
+});

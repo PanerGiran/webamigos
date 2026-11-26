@@ -208,19 +208,28 @@ export async function loadMessages(where = '', params = [], limit = CHAT_PAGE) {
             r.id AS r_id, r.body AS r_body, ru.username AS r_username, ru.display_name AS r_display_name,
             r.sticker_id AS r_sticker, r.media_id AS r_media,
             md.filename, md.mime, md.width, md.height,
-            sm.filename AS s_filename, sm.width AS s_width, sm.height AS s_height
+            sm.filename AS s_filename, sm.width AS s_width, sm.height AS s_height,
+            m.story_user_id, su.username AS su_username, su.display_name AS su_display_name,
+            so.id AS so_id, so.body AS so_body, so.bg AS so_bg, som.filename AS so_filename, som.width AS so_width, som.height AS so_height
        FROM messages m JOIN users u ON u.id = m.user_id
        LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
        LEFT JOIN media md ON md.id = m.media_id
        LEFT JOIN stickers st ON st.id = m.sticker_id LEFT JOIN media sm ON sm.id = st.media_id
+       LEFT JOIN users su ON su.id = m.story_user_id
+       LEFT JOIN stories so ON so.id = m.story_id AND so.expires_at > NOW() LEFT JOIN media som ON som.id = so.media_id
       ${where ? `WHERE ${where}` : ''}
       ORDER BY m.id DESC LIMIT ${limit}`,
     params,
   );
   const ids = rows.map((m) => m.id);
   const [reactions, polls] = await Promise.all([messageReactions(ids), chatPolls(ids)]);
-  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, r_sticker, r_media, filename, mime, width, height, s_filename, s_width, s_height, sticker_id, ...m }) => ({
+  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, r_sticker, r_media, filename, mime, width, height, s_filename, s_width, s_height, sticker_id,
+    story_user_id, su_username, su_display_name, so_id, so_body, so_bg, so_filename, so_width, so_height, ...m }) => ({
     ...m,
+    // Respuesta a una historia: de quién era y, mientras no venza, cómo se veía (id null = ya no está).
+    story: story_user_id
+      ? { id: so_id, user_id: story_user_id, username: su_username, display_name: su_display_name, body: so_id ? so_body : null, bg: so_bg, image: so_filename ? { filename: so_filename, width: so_width, height: so_height } : null }
+      : null,
     // Si responde a un sticker o a un adjunto sin texto, la cita dice qué era.
     reply: quote({ id: r_id, body: r_body || (r_sticker ? 'Sticker' : r_media ? 'Adjunto' : ''), username: r_username, display_name: r_display_name }),
     sticker: s_filename ? { id: sticker_id, filename: s_filename, width: s_width, height: s_height } : null,
@@ -250,6 +259,11 @@ router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
   if (!body && !req.file && !poll.options && !(stickerId > 0)) return res.status(400).json({ error: 'El mensaje está vacío.' });
   const [[sticker]] = stickerId > 0 ? await pool.execute('SELECT id FROM stickers WHERE id = ? AND deleted_at IS NULL', [stickerId]) : [[]];
   if (stickerId > 0 && !sticker) return res.status(400).json({ error: 'Ese sticker ya no está.' });
+  // Respuesta a una historia: solo texto, y la historia tiene que seguir vigente.
+  const storyId = Number.parseInt(req.body?.story_id, 10);
+  if (storyId > 0 && (!body || req.file || poll.options || stickerId > 0)) return res.status(400).json({ error: 'Escribí la respuesta a la historia.' });
+  const [[story]] = storyId > 0 ? await pool.execute('SELECT id, user_id FROM stories WHERE id = ? AND expires_at > NOW()', [storyId]) : [[]];
+  if (storyId > 0 && !story) return res.status(400).json({ error: 'Esa historia ya no está.' });
   const replyId = Number.parseInt(req.body?.reply_to, 10);
   const [[replied]] = replyId > 0 ? await pool.execute('SELECT id FROM messages WHERE id = ?', [replyId]) : [[]];
   const attachment = req.file ? await saveAttachment(req.file, req.user.id) : null;
@@ -257,7 +271,10 @@ router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
 
   let id;
   try {
-    const [r] = await pool.execute('INSERT INTO messages (user_id, body, reply_to, media_id, sticker_id) VALUES (?, ?, ?, ?, ?)', [req.user.id, body, replied?.id ?? null, attachment?.id ?? null, sticker?.id ?? null]);
+    const [r] = await pool.execute(
+      'INSERT INTO messages (user_id, body, reply_to, media_id, sticker_id, story_id, story_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [req.user.id, body, replied?.id ?? null, attachment?.id ?? null, sticker?.id ?? null, story?.id ?? null, story?.user_id ?? null],
+    );
     id = r.insertId;
   } catch (err) {
     if (attachment) await removeMedia(attachment.id);

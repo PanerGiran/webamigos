@@ -916,8 +916,9 @@ function storiesBar() {
 }
 
 // Visor: avanza solo cada 5 s; tocar la izquierda vuelve, la derecha sigue; mantener apretado pausa.
-function storyViewer(groups, gi, onClose) {
-  let si = Math.max(0, groups[gi].stories.findIndex((s) => !s.seen)); // arranca en la primera sin ver
+function storyViewer(groups, gi, onClose, startId) {
+  // Arranca en la pedida (desde el chat) o en la primera sin ver.
+  let si = Math.max(0, groups[gi].stories.findIndex((s) => (startId ? s.id === startId : !s.seen)));
   let started = 0;
   let elapsed = 0;
   let paused = false;
@@ -990,7 +991,34 @@ function storyViewer(groups, gi, onClose) {
     if (mine) {
       foot.replaceChildren(h('button', { type: 'button', className: 'sv-views', onclick: () => storyViews(s, () => (paused = true), () => (paused = false)) }, icon('user'), `Visto por ${s.views}`));
     } else {
-      foot.replaceChildren(
+      const reply = h('input', { className: 'sv-reply-input', maxLength: 2000, placeholder: 'Responder en el grupo…', enterKeyHint: 'send' });
+      // Tocarlo o escribir pausa la historia; al salir del campo sigue.
+      reply.onfocus = reply.onpointerdown = reply.oninput = () => (paused = true);
+      reply.onblur = () => (paused = false);
+      const replyForm = h(
+        'form',
+        {
+          className: 'sv-reply',
+          onsubmit: safe(async (e) => {
+            e.preventDefault();
+            const body = reply.value.trim();
+            if (!body) return;
+            const form = new FormData();
+            form.append('body', body);
+            form.append('story_id', String(s.id));
+            await api('/messages', { method: 'POST', form });
+            reply.value = '';
+            reply.blur();
+            toast(`Respuesta enviada al chat del grupo`);
+          }),
+        },
+        reply,
+        btn('send', 'Enviar respuesta', null, 'sv-btn sv-send', { iconOnly: true }),
+      );
+      replyForm.lastChild.type = 'submit';
+      const emojis = h('div', { className: 'sv-emojis' });
+      foot.replaceChildren(replyForm, emojis);
+      emojis.replaceChildren(
         ...EMOJIS.map((e) =>
           h('button', {
             type: 'button',
@@ -1000,7 +1028,7 @@ function storyViewer(groups, gi, onClose) {
               const r = await api(`/stories/${s.id}/react`, { method: 'PUT', json: { emoji: s.my_emoji === e ? null : e } });
               s.my_emoji = r.emoji;
               s.seen = true;
-              for (const b of foot.children) b.classList.toggle('on', b.textContent === s.my_emoji);
+              for (const b of emojis.children) b.classList.toggle('on', b.textContent === s.my_emoji);
               if (r.emoji) toast(`Le mandaste ${r.emoji} a ${g.display_name.split(' ')[0]}`);
             }),
           }, e),
@@ -1028,6 +1056,7 @@ function storyViewer(groups, gi, onClose) {
   };
   stage.onpointercancel = () => (paused = false);
   dlg.onkeydown = (e) => {
+    if (e.target.matches('input')) return;
     if (e.key === 'ArrowRight') move(1);
     if (e.key === 'ArrowLeft') move(-1);
   };
@@ -2105,6 +2134,7 @@ function chatScreen() {
           },
           !mine && first && profileLink(m, { className: 'name' }, h('strong', {}, m.display_name)),
           m.reply && h('button', { type: 'button', className: 'quote', onclick: stop(() => jumpTo(m.reply.id)) }, h('strong', {}, m.reply.display_name), h('span', {}, m.reply.body)),
+          m.story && storyQuote(m.story, mine),
           m.body && h('p', {}, ...richText(m.body)),
           m.media && renderMedia(m.media, { onOpenPhoto: openPhoto }),
           m.poll && chatPoll(m),
@@ -2341,6 +2371,34 @@ function chatScreen() {
   );
   nodes.at(-1).className = 'chat-main'; // el <main> es siempre el último (antes van el panel y el encabezado)
   return nodes;
+}
+
+// Tarjeta de "respondió a la historia de…" en el chat. Tocarla abre la historia, mientras no venza.
+function storyQuote(st, byMe) {
+  const whose = st.user_id === me.id ? 'tu historia' : `la historia de ${st.display_name.split(' ')[0]}`;
+  const thumb = h('span', { className: 'sq-thumb' });
+  if (st.image) {
+    const img = h('img', { alt: '' });
+    imageUrl(st.image.filename).then((url) => (img.src = url)).catch(() => {});
+    thumb.append(img);
+  } else if (st.id) {
+    const [bg, fg] = STORY_BG[st.bg] ?? STORY_BG[0];
+    Object.assign(thumb.style, { background: bg, color: fg });
+    thumb.textContent = 'Aa';
+  }
+  const text = h('span', { className: 'sq-text' }, h('strong', {}, `${byMe ? 'Respondiste' : 'Respondió'} a ${whose}`), h('span', {}, st.id ? st.body || 'Foto' : 'La historia ya no está'));
+  if (!st.id) return h('div', { className: 'story-quote gone' }, thumb, text);
+  return h('button', {
+    type: 'button',
+    className: 'story-quote',
+    onclick: safe(async (e) => {
+      e.stopPropagation();
+      const { users } = await api('/stories');
+      const gi = users.findIndex((g) => g.stories.some((x) => x.id === st.id));
+      if (gi < 0) return toast('Esa historia ya no está');
+      storyViewer(users, gi, null, st.id);
+    }),
+  }, thumb, text);
 }
 
 // Imagen de un sticker (la URL se baja una sola vez y se comparte).

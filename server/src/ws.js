@@ -79,9 +79,12 @@ export function attachChat(server) {
     // A quien lo mencionan le llega "te mencionó" en lugar del aviso general del chat.
     const online = authed().map((c) => c.user.id);
     const skip = [...new Set([user.id, ...online])];
-    const mentioned = await mentionedIds(message.body, skip);
+    // Quien subió la historia que responden recibe ese aviso en lugar del general (si no tiene la app abierta).
+    const owner = message.story && message.story.user_id !== user.id && !skip.includes(message.story.user_id) ? [message.story.user_id] : [];
+    notifyLater('comments', { title: `${user.display_name} respondió a tu historia`, body: what, url: '/chat', tag: 'chat-story' }, { to: owner });
+    const mentioned = await mentionedIds(message.body, [...skip, ...owner]);
     notifyLater('mentions', { title: `${user.display_name} te mencionó en el chat`, body: what, url: '/chat', tag: 'chat-mention' }, { to: mentioned });
-    notifyLater('chat', { title: `${user.display_name} en el chat`, body: what, url: '/chat', tag: 'chat' }, { except: [...skip, ...mentioned] });
+    notifyLater('chat', { title: `${user.display_name} en el chat`, body: what, url: '/chat', tag: 'chat' }, { except: [...skip, ...owner, ...mentioned] });
   }
   live.publishChat = (user, message) => publishChat(user, message).catch((err) => console.error('chat:', err.message));
   live.broadcast = broadcast;

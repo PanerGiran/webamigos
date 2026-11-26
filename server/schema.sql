@@ -120,6 +120,29 @@ CREATE TABLE reactions (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+-- Historias de 24 horas y quién las vio (las vencidas las borra el servidor cada hora).
+CREATE TABLE stories (                         -- foto o texto sobre un color (bg)
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  media_id BIGINT UNSIGNED NULL,
+  body VARCHAR(300) NULL,
+  bg TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  INDEX idx_stories_expires (expires_at),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (media_id) REFERENCES media(id)
+);
+CREATE TABLE story_views (
+  story_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  emoji VARCHAR(16) NULL,
+  viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (story_id, user_id),
+  FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE stickers (                        -- stickers del grupo (sacarlo del panel no lo borra de los mensajes)
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -138,11 +161,15 @@ CREATE TABLE messages (                        -- chat general (agregar room_id 
   reply_to BIGINT UNSIGNED NULL,                -- mensaje al que responde
   media_id BIGINT UNSIGNED NULL,                -- foto o audio adjunto
   sticker_id BIGINT UNSIGNED NULL,              -- o un sticker del grupo
+  story_id BIGINT UNSIGNED NULL,                -- historia a la que responde (se vacía cuando vence)
+  story_user_id BIGINT UNSIGNED NULL,           -- de quién era esa historia (queda siempre)
   INDEX idx_messages_created (created_at),
   FOREIGN KEY (user_id) REFERENCES users(id),
   CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL,
   CONSTRAINT fk_messages_media FOREIGN KEY (media_id) REFERENCES media(id),
-  CONSTRAINT fk_messages_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id)
+  CONSTRAINT fk_messages_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id),
+  CONSTRAINT fk_messages_story FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE SET NULL,
+  CONSTRAINT fk_messages_story_user FOREIGN KEY (story_user_id) REFERENCES users(id)
 );
 
 CREATE TABLE message_reactions (
@@ -187,29 +214,6 @@ CREATE TABLE push_subscriptions (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-
--- Historias de 24 horas y quién las vio (las vencidas las borra el servidor cada hora).
-CREATE TABLE stories (                         -- foto o texto sobre un color (bg)
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
-  media_id BIGINT UNSIGNED NULL,
-  body VARCHAR(300) NULL,
-  bg TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  expires_at DATETIME NOT NULL,
-  INDEX idx_stories_expires (expires_at),
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (media_id) REFERENCES media(id)
-);
-CREATE TABLE story_views (
-  story_id BIGINT UNSIGNED NOT NULL,
-  user_id BIGINT UNSIGNED NOT NULL,
-  emoji VARCHAR(16) NULL,
-  viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (story_id, user_id),
-  FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Usuario de DB con permisos mínimos (no usar root). Cambiar la clave antes de correrlo.
