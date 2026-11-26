@@ -876,9 +876,258 @@ function postList(query, empty) {
   return { list, status };
 }
 
+// --- Historias de 24 horas: fila de círculos arriba del feed, visor a pantalla completa y creador ---
+
+// Fondos de las historias de texto (colores lisos; el índice es lo que guarda el servidor).
+const STORY_BG = [
+  ['#1c1b19', '#f6f5f2'], ['#c2541c', '#ffffff'], ['#2f6f4f', '#ffffff'],
+  ['#2c5d8f', '#ffffff'], ['#6d3a63', '#ffffff'], ['#e3d3b4', '#1c1b19'],
+];
+const STORY_MS = 5000; // cuánto dura cada una en pantalla
+
+function storiesBar() {
+  const bar = h('div', { className: 'stories', role: 'list', ariaLabel: 'Historias' });
+  let groups = [];
+  const load = () =>
+    api('/stories')
+      .then((r) => ((groups = r.users), draw()))
+      .catch(() => {});
+  function circle(g, { label, onclick, add }) {
+    const ring = h('span', { className: `story-ring${g && !g.seen ? ' unseen' : ''}${g ? '' : ' empty'}` }, avatar(g ?? me));
+    return h(
+      'div',
+      { className: 'story-item', role: 'listitem' },
+      h('button', { type: 'button', className: 'story-circle', onclick, ariaLabel: label }, ring, add && h('span', { className: 'story-add' }, icon('plus'))),
+      h('span', { className: 'story-name' }, label),
+    );
+  }
+  function draw() {
+    const mine = groups.find((g) => g.id === me.id);
+    const others = groups.filter((g) => g.id !== me.id);
+    bar.replaceChildren(...[
+      circle(mine, { label: 'Tu historia', add: !mine, onclick: () => (mine ? storyViewer(groups, 0, load) : storyCreator(load)) }),
+      mine && h('div', { className: 'story-item', role: 'listitem' }, h('button', { type: 'button', className: 'story-circle story-plus', onclick: () => storyCreator(load), ariaLabel: 'Subir otra historia' }, icon('plus')), h('span', { className: 'story-name' }, 'Nueva')),
+      ...others.map((g) => circle(g, { label: g.display_name.split(' ')[0], onclick: () => storyViewer(groups, groups.indexOf(g), load) })),
+    ].filter(Boolean)); // replaceChildren mostraría "false" como texto
+  }
+  draw();
+  load();
+  return bar;
+}
+
+// Visor: avanza solo cada 5 s; tocar la izquierda vuelve, la derecha sigue; mantener apretado pausa.
+function storyViewer(groups, gi, onClose) {
+  let si = Math.max(0, groups[gi].stories.findIndex((s) => !s.seen)); // arranca en la primera sin ver
+  let started = 0;
+  let elapsed = 0;
+  let paused = false;
+  let frame = 0;
+  const bars = h('div', { className: 'sv-bars' });
+  const head = h('div', { className: 'sv-head' });
+  const stage = h('div', { className: 'sv-stage' });
+  const foot = h('div', { className: 'sv-foot' });
+  const dlg = h('dialog', { className: 'story-viewer' }, h('div', { className: 'sv-frame' }, bars, head, stage, foot));
+  document.body.append(dlg);
+  const close = () => dlg.open && dlg.close();
+  dlg.onclose = () => {
+    cancelAnimationFrame(frame);
+    dlg.remove();
+    onClose?.();
+  };
+
+  function move(step) {
+    si += step;
+    if (si >= groups[gi].stories.length) (gi += 1), (si = 0);
+    else if (si < 0) {
+      if (gi === 0) si = 0;
+      else (gi -= 1), (si = groups[gi].stories.length - 1);
+    }
+    if (gi >= groups.length) return close();
+    show();
+  }
+  function tick(now) {
+    if (!paused) elapsed += now - started;
+    started = now;
+    const p = Math.min(1, elapsed / STORY_MS);
+    bars.children[si]?.firstChild.style.setProperty('--p', p);
+    if (p >= 1) return move(1);
+    frame = requestAnimationFrame(tick);
+  }
+  function show() {
+    cancelAnimationFrame(frame);
+    const g = groups[gi];
+    const s = g.stories[si];
+    const mine = g.id === me.id;
+    bars.replaceChildren(...g.stories.map((_, i) => h('span', { className: 'sv-bar' }, h('span', { style: `--p:${i < si ? 1 : 0}` }))));
+    head.replaceChildren(...[
+      avatar(g, 'sm'),
+      h('div', { className: 'sv-who' }, h('strong', {}, g.display_name), h('span', {}, timeAgo(new Date(s.created_at)))),
+      mine && btn('trash', 'Borrar historia', safe(async () => {
+        paused = true;
+        if (!confirm('¿Borrar esta historia?')) return void (paused = false);
+        await api(`/stories/${s.id}`, { method: 'DELETE' });
+        g.stories.splice(si, 1);
+        if (!g.stories.length) groups.splice(gi, 1), (si = 0);
+        else si = Math.min(si, g.stories.length - 1);
+        paused = false;
+        if (!groups.length || gi >= groups.length) return close();
+        show();
+      }), 'sv-btn', { iconOnly: true }),
+      btn('x', 'Cerrar', close, 'sv-btn', { iconOnly: true }),
+    ].filter(Boolean));
+    // Foto (con su texto abajo) o texto sobre su color.
+    if (s.image) {
+      const img = h('img', { className: 'sv-img', alt: s.body ?? `Historia de ${g.display_name}` });
+      imageUrl(s.image.filename).then((url) => (img.src = url)).catch(() => {});
+      stage.replaceChildren(...[img, s.body && h('p', { className: 'sv-caption' }, s.body)].filter(Boolean));
+      stage.style.background = '';
+    } else {
+      const [bg, fg] = STORY_BG[s.bg] ?? STORY_BG[0];
+      stage.replaceChildren(h('p', { className: 'sv-text' }, s.body));
+      stage.style.background = bg;
+      stage.style.color = fg;
+    }
+    if (mine) {
+      foot.replaceChildren(h('button', { type: 'button', className: 'sv-views', onclick: () => storyViews(s, () => (paused = true), () => (paused = false)) }, icon('user'), `Visto por ${s.views}`));
+    } else {
+      foot.replaceChildren(
+        ...EMOJIS.map((e) =>
+          h('button', {
+            type: 'button',
+            className: `sv-emoji${s.my_emoji === e ? ' on' : ''}`,
+            ariaLabel: `Reaccionar con ${e}`,
+            onclick: safe(async () => {
+              const r = await api(`/stories/${s.id}/react`, { method: 'PUT', json: { emoji: s.my_emoji === e ? null : e } });
+              s.my_emoji = r.emoji;
+              s.seen = true;
+              for (const b of foot.children) b.classList.toggle('on', b.textContent === s.my_emoji);
+              if (r.emoji) toast(`Le mandaste ${r.emoji} a ${g.display_name.split(' ')[0]}`);
+            }),
+          }, e),
+        ),
+      );
+      if (!s.seen) {
+        s.seen = true;
+        g.seen = g.stories.every((x) => x.seen);
+        api(`/stories/${s.id}/view`, { method: 'PUT' }).catch(() => {});
+      }
+    }
+    elapsed = 0;
+    started = performance.now();
+    frame = requestAnimationFrame(tick);
+  }
+
+  // Toques sobre la imagen: izquierda vuelve, derecha sigue; mantener apretado pausa.
+  let downAt = 0;
+  stage.onpointerdown = () => ((downAt = performance.now()), (paused = true));
+  stage.onpointerup = (e) => {
+    paused = false;
+    if (performance.now() - downAt > 300) return; // fue mantener, no tocar
+    const r = stage.getBoundingClientRect();
+    move(e.clientX - r.left < r.width / 3 ? -1 : 1);
+  };
+  stage.onpointercancel = () => (paused = false);
+  dlg.onkeydown = (e) => {
+    if (e.key === 'ArrowRight') move(1);
+    if (e.key === 'ArrowLeft') move(-1);
+  };
+  dlg.showModal();
+  show();
+}
+
+// Quién vio tu historia y con qué reaccionó (pausa la historia mientras está abierto).
+async function storyViews(s, pause, resume) {
+  pause();
+  const { views } = await api(`/stories/${s.id}/views`).catch((err) => (toast(err.message, 'error'), { views: null }));
+  if (!views) return resume();
+  openSheet(
+    `Visto por ${views.length}`,
+    views.length
+      ? h('div', {}, ...views.map((v) => h('div', { className: 'person' }, avatar(v, 'sm'), h('span', { className: 'grow' }, v.display_name), v.emoji && h('span', { className: 'react-emoji' }, v.emoji))))
+      : h('p', { className: 'muted' }, 'Todavía nadie la vio'),
+  );
+  sheet.addEventListener('close', resume, { once: true });
+}
+
+// Subir una historia: una foto (con texto opcional) o un texto sobre uno de los colores.
+function storyCreator(onDone) {
+  let file = null;
+  let bg = 0;
+  const preview = h('div', { className: 'sc-preview' });
+  const text = h('textarea', { maxLength: 300, rows: 2, placeholder: 'Escribí algo' });
+  const swatches = h('div', { className: 'sc-colors', role: 'radiogroup', ariaLabel: 'Color de fondo' });
+  const fileInput = h('input', { type: 'file', accept: 'image/*', className: 'visually-hidden' });
+  const pick = h('label', { className: 'btn-link sc-pick' }, icon('image'), h('span', {}, 'Elegir foto'), fileInput);
+  const remove = h('button', { type: 'button', className: 'ghost sm', hidden: true, onclick: () => setFile(null) }, 'Quitar foto');
+  const msg = errorBox();
+  let previewUrl = null;
+  function setFile(f) {
+    file = f;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = f && URL.createObjectURL(f);
+    remove.hidden = !f;
+    swatches.hidden = !!f;
+    text.placeholder = f ? 'Texto sobre la foto (opcional)' : 'Escribí algo';
+    draw();
+  }
+  function draw() {
+    const [b, fg] = STORY_BG[bg];
+    preview.style.background = file ? '' : b;
+    preview.style.color = fg;
+    preview.replaceChildren(...[
+      file ? h('img', { src: previewUrl, alt: '' }) : h('p', { className: 'sv-text' }, text.value || 'Tu texto'),
+      file && text.value && h('p', { className: 'sv-caption' }, text.value),
+    ].filter(Boolean));
+    swatches.replaceChildren(
+      ...STORY_BG.map(([c], i) => {
+        const b2 = h('button', { type: 'button', className: `sc-color${i === bg ? ' on' : ''}`, ariaLabel: `Color ${i + 1}`, onclick: () => ((bg = i), draw()) });
+        b2.style.background = c;
+        b2.setAttribute('role', 'radio');
+        b2.setAttribute('aria-checked', i === bg);
+        return b2;
+      }),
+    );
+  }
+  fileInput.onchange = () => {
+    const f = fileInput.files[0];
+    fileInput.value = '';
+    if (!f) return;
+    if (f.size > MAX_IMAGE) return toast('La foto pasa los 5 MB.', 'error');
+    setFile(f);
+  };
+  text.oninput = draw;
+  openSheet(
+    'Nueva historia',
+    h(
+      'form',
+      {
+        className: 'story-create',
+        onsubmit: onSubmit(msg, async () => {
+          if (!file && !text.value.trim()) throw new Error('Elegí una foto o escribí algo.');
+          const form = new FormData();
+          if (file) form.append('image', file);
+          if (text.value.trim()) form.append('body', text.value.trim());
+          form.append('bg', String(bg));
+          await api('/stories', { method: 'POST', form });
+          sheet.close();
+          toast('Historia compartida, dura 24 horas');
+          onDone?.();
+        }),
+      },
+      preview,
+      h('div', { className: 'row sc-tools' }, pick, remove),
+      text,
+      swatches,
+      msg,
+      h('button', { className: 'primary block' }, 'Compartir'),
+    ),
+  );
+  draw();
+}
+
 function feedScreen() {
   const { list, status } = postList('', emptyState('image', 'Todavía no hay nada en el feed', 'Lo primero que publiques lo ve todo el grupo'));
-  return shell(...[installCard(true), pushNudge(), composer(render), list, status].filter(Boolean));
+  return shell(...[storiesBar(), installCard(true), pushNudge(), composer(render), list, status].filter(Boolean));
 }
 
 // --- Instalar la app (PWA) ---
@@ -1735,7 +1984,7 @@ function closeLive() {
 const liveBox = h('div', { className: 'live-toasts' });
 liveBox.setAttribute('aria-live', 'polite');
 document.body.append(liveBox);
-const LIVE_KINDS = { chat: ['Chat', true], comment: ['Comentario', true], mention: ['Mención', false], post: ['Post nuevo', false] };
+const LIVE_KINDS = { chat: ['Chat', true], comment: ['Comentario', true], mention: ['Mención', false], post: ['Post nuevo', false], story: ['Historia', false] };
 function liveToast({ kind, from, text, url }) {
   const [tag, red] = LIVE_KINDS[kind] ?? ['Aviso', false];
   const close = () => el.remove();

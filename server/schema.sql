@@ -189,6 +189,29 @@ CREATE TABLE push_subscriptions (
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
+-- Historias de 24 horas y quién las vio (las vencidas las borra el servidor cada hora).
+CREATE TABLE stories (                         -- foto o texto sobre un color (bg)
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  media_id BIGINT UNSIGNED NULL,
+  body VARCHAR(300) NULL,
+  bg TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  INDEX idx_stories_expires (expires_at),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (media_id) REFERENCES media(id)
+);
+CREATE TABLE story_views (
+  story_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  emoji VARCHAR(16) NULL,
+  viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (story_id, user_id),
+  FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Usuario de DB con permisos mínimos (no usar root). Cambiar la clave antes de correrlo.
 -- CREATE USER 'amigos'@'localhost' IDENTIFIED BY '<clave-larga-aleatoria>';
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON amigos.* TO 'amigos'@'localhost';

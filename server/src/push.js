@@ -69,8 +69,8 @@ export const notifyLater = (pref, payload, opts = {}) => {
 };
 
 // El chat no pasa por acá: cada app ya recibe los mensajes del chat y arma su propio aviso.
-async function notifyLive(pref, payload, { to, except = [], from }) {
-  const kind = { posts: 'post', comments: 'comment', mentions: 'mention' }[pref];
+// `kind` (opcional) cambia la etiqueta del aviso en vivo, ej. 'story' para las historias.
+async function notifyLive(pref, payload, { to, except = [], from, kind = { posts: 'post', comments: 'comment', mentions: 'mention' }[pref] }) {
   let ids = to;
   if (!ids) ids = (await pool.execute('SELECT id FROM users WHERE is_active = 1 AND deleted_at IS NULL'))[0].map((r) => r.id);
   live.sendTo(ids.filter((id) => !except.includes(id)), {

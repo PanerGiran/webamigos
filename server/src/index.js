@@ -6,6 +6,7 @@ import postRoutes from './routes/posts.js';
 import adminRoutes from './routes/admin.js';
 import socialRoutes from './routes/social.js';
 import pushRoutes from './routes/push.js';
+import storyRoutes, { cleanStories } from './routes/stories.js';
 import { attachChat } from './ws.js';
 
 const WEB_DIR = path.join(import.meta.dirname, '../../web');
@@ -24,6 +25,7 @@ app.use('/api', authRoutes);
 app.use('/api', postRoutes);
 app.use('/api', socialRoutes);
 app.use('/api', pushRoutes);
+app.use('/api', storyRoutes);
 app.use('/api', (req, res) => res.status(404).json({ error: 'no existe' }));
 
 app.use(express.static(WEB_DIR));
@@ -41,4 +43,8 @@ if (import.meta.main) {
   const port = Number(process.env.PORT ?? 3000);
   const server = app.listen(port, '127.0.0.1', () => console.log(`escuchando en 127.0.0.1:${port}`));
   attachChat(server);
+  // Las historias vencen a las 24 h: cada hora se borran las vencidas (con sus fotos).
+  const clean = () => cleanStories().catch((err) => console.error('historias:', err.message));
+  clean();
+  setInterval(clean, 60 * 60_000).unref();
 }

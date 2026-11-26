@@ -20,6 +20,7 @@ after(async () => {
     for (const sql of [
       `DELETE FROM messages WHERE user_id IN (${q})`,
       `DELETE FROM stickers WHERE user_id IN (${q})`,
+      `DELETE FROM stories WHERE user_id IN (${q})`, // arrastra quién las vio
       `DELETE FROM posts WHERE user_id IN (${q})`, // arrastra comentarios y reacciones
       `DELETE FROM comments WHERE user_id IN (${q})`,
       `DELETE FROM reactions WHERE user_id IN (${q})`,
