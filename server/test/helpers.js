@@ -19,6 +19,7 @@ after(async () => {
     const q = ids.map(() => '?').join(',');
     for (const sql of [
       `DELETE FROM messages WHERE user_id IN (${q})`,
+      `DELETE FROM stickers WHERE user_id IN (${q})`,
       `DELETE FROM posts WHERE user_id IN (${q})`, // arrastra comentarios y reacciones
       `DELETE FROM comments WHERE user_id IN (${q})`,
       `DELETE FROM reactions WHERE user_id IN (${q})`,

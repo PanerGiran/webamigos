@@ -120,6 +120,16 @@ CREATE TABLE reactions (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE stickers (                        -- stickers del grupo (sacarlo del panel no lo borra de los mensajes)
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  media_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (media_id) REFERENCES media(id)
+);
+
 CREATE TABLE messages (                        -- chat general (agregar room_id si hay más salas)
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -127,10 +137,12 @@ CREATE TABLE messages (                        -- chat general (agregar room_id 
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reply_to BIGINT UNSIGNED NULL,                -- mensaje al que responde
   media_id BIGINT UNSIGNED NULL,                -- foto o audio adjunto
+  sticker_id BIGINT UNSIGNED NULL,              -- o un sticker del grupo
   INDEX idx_messages_created (created_at),
   FOREIGN KEY (user_id) REFERENCES users(id),
   CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL,
-  CONSTRAINT fk_messages_media FOREIGN KEY (media_id) REFERENCES media(id)
+  CONSTRAINT fk_messages_media FOREIGN KEY (media_id) REFERENCES media(id),
+  CONSTRAINT fk_messages_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id)
 );
 
 CREATE TABLE message_reactions (

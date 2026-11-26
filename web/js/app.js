@@ -1703,7 +1703,7 @@ function connectLive() {
     else if (msg.type === 'error') toast(msg.error, 'error');
     // Mensaje del chat: aviso solo si no lo estás mirando y no lo mandaste vos.
     else if (msg.type === 'message' && msg.message.user_id !== me?.id && location.pathname !== '/chat') {
-      liveToast({ kind: 'chat', from: msg.message, text: msg.message.body || '📎 Mandó un adjunto', url: '/chat' });
+      liveToast({ kind: 'chat', from: msg.message, text: msg.message.body || (msg.message.sticker ? 'Mandó un sticker' : 'Mandó un adjunto'), url: '/chat' });
     }
     liveScreen?.(msg);
   };
@@ -1762,7 +1762,19 @@ function chatScreen() {
   let messages = [];
   let more = false;
   const list = h('div', { className: 'chat-list' });
-  const status = h('span', { className: 'muted small' }, 'Conectando…');
+  const status = h('span', { className: 'muted small chat-status' }, 'Conectando…');
+  // "Fulano está escribiendo…" en lugar de "En línea" mientras dure (4 s desde el último aviso).
+  let baseStatus = 'Conectando…';
+  const typing = new Map(); // id → { name, timer }
+  function drawStatus() {
+    const names = [...typing.values()].map((t) => t.name.split(' ')[0]);
+    status.textContent = !names.length ? baseStatus : names.length === 1 ? `${names[0]} está escribiendo…` : names.length === 2 ? `${names[0]} y ${names[1]} están escribiendo…` : 'Varios están escribiendo…';
+    status.classList.toggle('typing', names.length > 0);
+  }
+  function stopTyping(id) {
+    clearTimeout(typing.get(id)?.timer);
+    if (typing.delete(id)) drawStatus();
+  }
   const online = h('div', { className: 'online' });
   const input = withMentions(h('textarea', { rows: 1, maxLength: 2000, placeholder: 'Mensaje…' }));
   const sendBtn = h('button', { className: 'primary icon-only', ariaLabel: 'Enviar', disabled: true }, icon('send'));
@@ -1785,7 +1797,7 @@ function chatScreen() {
     replyTo = m;
     activeId = null;
     replyBar.replaceChildren(
-      h('div', { className: 'grow' }, h('strong', {}, `Respondiendo a ${m.display_name}`), h('span', { className: 'muted small' }, short(m.body))),
+      h('div', { className: 'grow' }, h('strong', {}, `Respondiendo a ${m.display_name}`), h('span', { className: 'muted small' }, short(m.body || (m.sticker ? 'Sticker' : m.media ? 'Adjunto' : '')))),
       btn('x', 'Cancelar respuesta', cancelReply, 'ghost', { iconOnly: true }),
     );
     replyBar.hidden = false;
@@ -1832,9 +1844,9 @@ function chatScreen() {
         h(
           'div',
           {
-            className: `bubble${activeId === m.id ? ' active' : ''}`,
+            className: `bubble${m.sticker ? ' sticker' : ''}${activeId === m.id ? ' active' : ''}`,
             onclick: (e) => {
-              if (e.target.closest('a, button, audio, video, img')) return;
+              if (e.target.closest('a, button, audio, video, img:not(.sticker-img)')) return;
               activeId = activeId === m.id ? null : m.id;
               draw();
             },
@@ -1844,6 +1856,7 @@ function chatScreen() {
           m.body && h('p', {}, ...richText(m.body)),
           m.media && renderMedia(m.media, { onOpenPhoto: openPhoto }),
           m.poll && chatPoll(m),
+          m.sticker && stickerImg(m.sticker),
           h('time', { dateTime: m.created_at, title: fmt.format(date) }, (sameDay ? hourFmt : dayHourFmt).format(date)),
         ),
         m.reactions?.length > 0 &&
@@ -1906,13 +1919,20 @@ function chatScreen() {
   // Eventos de la conexión global mientras el chat está abierto.
   liveScreen = (msg) => {
     if (msg.type === 'ready') {
-      status.textContent = 'En línea';
+      baseStatus = 'En línea';
+      drawStatus();
       sendBtn.disabled = false;
       loadLatest().catch((err) => toast(err.message, 'error')); // al reconectar trae lo que se perdió
     } else if (msg.type === 'closed') {
       sendBtn.disabled = true;
-      status.textContent = 'Reconectando…';
+      baseStatus = 'Reconectando…';
+      drawStatus();
+    } else if (msg.type === 'typing') {
+      clearTimeout(typing.get(msg.user.id)?.timer);
+      typing.set(msg.user.id, { name: msg.user.display_name, timer: setTimeout(() => stopTyping(msg.user.id), 4000) });
+      drawStatus();
     } else if (msg.type === 'message' && !messages.some((m) => m.id === msg.message.id)) {
+      stopTyping(msg.message.user_id); // ya lo mandó
       messages.push(msg.message);
       draw(msg.message.user_id === me.id ? 'bottom' : undefined);
     } else if (msg.type === 'poll') {
@@ -1926,8 +1946,9 @@ function chatScreen() {
   };
 
   // Manda un mensaje: texto, o foto/audio/encuesta (el texto escrito, si hay, va como epígrafe o pregunta).
-  async function sendExtra({ file, poll, body = input.value.trim() }) {
+  async function sendExtra({ file, poll, sticker, body = input.value.trim() }) {
     const form = new FormData();
+    if (sticker) form.append('sticker_id', String(sticker.id));
     if (body) form.append('body', body);
     if (file) form.append('file', file);
     if (poll) form.append('poll', JSON.stringify(poll));
@@ -1973,9 +1994,54 @@ function chatScreen() {
     );
     question.focus();
   }
+  // Stickers del grupo: tocar uno lo manda; "Agregar" sube una imagen nueva para todos.
+  function stickerSheet() {
+    const grid = h('div', { className: 'sticker-grid' });
+    const msg = errorBox();
+    let stickers = [];
+    const fileInput = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
+    const draw = () =>
+      grid.replaceChildren(
+        h('button', { type: 'button', className: 'sticker-pick sticker-add', onclick: () => fileInput.click() }, icon('image'), h('span', {}, 'Agregar')),
+        ...stickers.map((s) =>
+          h(
+            'div',
+            { className: 'sticker-cell' },
+            h('button', { type: 'button', className: 'sticker-pick', ariaLabel: 'Mandar sticker', onclick: safe(async () => {
+              sheet.close();
+              await sendExtra({ sticker: s, body: '' });
+            }) }, stickerImg(s)),
+            (s.user_id === me.id || me.role === 'admin') &&
+              btn('x', 'Sacar del panel', safe(async () => {
+                if (!confirm('¿Sacar este sticker del panel? Los mensajes que ya lo usaron lo siguen mostrando.')) return;
+                await api(`/stickers/${s.id}`, { method: 'DELETE' });
+                stickers = stickers.filter((x) => x.id !== s.id);
+                draw();
+              }), 'sticker-remove', { iconOnly: true }),
+          ),
+        ),
+      );
+    fileInput.onchange = safe(async () => {
+      const f = fileInput.files[0];
+      fileInput.value = '';
+      if (!f) return;
+      if (f.size > MAX_IMAGE) throw new Error('La imagen pasa los 5 MB.');
+      const form = new FormData();
+      form.append('image', f);
+      toast('Subiendo sticker…');
+      const { sticker } = await api('/stickers', { method: 'POST', form });
+      stickers = [sticker, ...stickers];
+      draw();
+      toast('Sticker agregado');
+    });
+    openSheet('Stickers', h('div', {}, h('p', { className: 'muted small sticker-hint' }, 'Los sube cualquiera del grupo y los pueden mandar todos'), grid, fileInput, msg));
+    draw();
+    api('/stickers').then((r) => ((stickers = r.stickers), draw())).catch((err) => (msg.textContent = err.message));
+  }
   const chatTools = h(
     'div',
     { className: 'chat-tools' },
+    btn('smile', 'Stickers', stickerSheet, 'ghost', { iconOnly: true }),
     btn('image', 'Mandar foto', () => photoInput.click(), 'ghost', { iconOnly: true }),
     photoInput,
     recorder,
@@ -1995,7 +2061,9 @@ function chatScreen() {
       throw err;
     }
   });
+  let typedAt = 0;
   input.oninput = () => {
+    if (input.value.trim() && Date.now() - typedAt > 2500) (typedAt = Date.now()), sendLive({ type: 'typing' });
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   };
@@ -2019,6 +2087,13 @@ function chatScreen() {
   );
   nodes.at(-1).className = 'chat-main'; // el <main> es siempre el último (antes van el panel y el encabezado)
   return nodes;
+}
+
+// Imagen de un sticker (la URL se baja una sola vez y se comparte).
+function stickerImg(s) {
+  const img = h('img', { className: 'sticker-img', alt: 'Sticker', width: s.width, height: s.height });
+  imageUrl(s.filename).then((url) => (img.src = url)).catch(() => {});
+  return img;
 }
 
 // Encuesta en el chat: tocar una opción vota (o saca tu voto). Los resultados se actualizan en vivo para todos.

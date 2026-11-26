@@ -455,6 +455,7 @@
 }
 [data-look="ia"] .avatar { box-shadow: 0 0 0 2px #c084fc, 0 0 14px rgb(192 132 252 / 0.7); }
 [data-look="ia"] .msg.mine .bubble { background: linear-gradient(135deg, #8b5cf6, #ec4899); color: #fff; }
+[data-look="ia"] .msg.mine .bubble.sticker { background: none; color: inherit; }
 [data-look="ia"] .msg.mine .bubble :is(time, .poll-pct) { color: rgb(255 255 255 / 0.8); }
 [data-look="ia"] .audio-wave span.on { background: linear-gradient(#a855f7, #ec4899); }
 [data-look="ia"] { scrollbar-color: #c084fc transparent; }

@@ -22,8 +22,8 @@ async function connect(u) {
       [...waiters].forEach((w) => w());
     };
   });
-  // Espera el primer evento que cumpla `where` (y lo saca de la cola).
-  return (where) =>
+  // Espera el primer evento que cumpla `where` (y lo saca de la cola). En .ws queda la conexión.
+  const next = (where) =>
     new Promise((resolve, reject) => {
       const timer = setTimeout(() => (waiters.delete(check), reject(new Error('no llegó el evento'))), 3000);
       function check() {
@@ -36,6 +36,8 @@ async function connect(u) {
       waiters.add(check);
       check();
     });
+  next.ws = ws;
+  return next;
 }
 
 function sendMessage(u, { body, file, type = 'image/png', poll, reply_to } = {}) {
@@ -125,4 +127,61 @@ test('chat: borrar un mensaje (el autor o un admin) desaparece en vivo y se llev
 
   assert.equal((await del(admin, reply.id)).status, 204, 'un admin puede borrar cualquiera');
   assert.equal((await del(ana, message.id)).status, 404);
+});
+
+test('chat: "escribiendo…" le llega a los demás, como mucho cada 2 s', async () => {
+  const [ana, beto] = [await makeUser(), await makeUser()];
+  const [nextA, nextB] = [await connect(ana), await connect(beto)];
+  nextA.ws.send(JSON.stringify({ type: 'typing' }));
+  const ev = await nextB((m) => m.type === 'typing' && m.user.id === ana.id);
+  assert.equal(ev.user.display_name, `Test ${ana.username}`);
+  // Otro aviso enseguida se ignora; el de beto sí le llega a ana.
+  nextA.ws.send(JSON.stringify({ type: 'typing' }));
+  nextB.ws.send(JSON.stringify({ type: 'typing' }));
+  await nextA((m) => m.type === 'typing' && m.user.id === beto.id);
+  await assert.rejects(nextB((m) => m.type === 'typing' && m.user.id === ana.id), /no llegó/, 'el segundo aviso de ana no se reenvía');
+});
+
+test('stickers: subir, listar, mandar en el chat y sacar del panel', async () => {
+  const [ana, beto, admin] = [await makeUser(), await makeUser(), await makeUser('admin')];
+  const nextB = await connect(beto);
+  // PNG con transparencia: el sticker se guarda en WebP, entero y sin pasar de 320 px.
+  const png = await sharp({ create: { width: 640, height: 400, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const upload = (u, buf) => {
+    const form = new FormData();
+    form.append('image', new Blob([buf], { type: 'image/png' }), 's.png');
+    return fetch(`${base}/stickers`, { method: 'POST', headers: { authorization: `Bearer ${u.token}` }, body: form });
+  };
+  let res = await upload(ana, png);
+  assert.equal(res.status, 201);
+  const { sticker } = await res.json();
+  assert.deepEqual([sticker.width, sticker.height], [320, 200]);
+  assert.equal((await upload(ana, Buffer.from('no soy imagen'))).status, 400);
+  assert.ok((await (await call(beto, '/stickers')).json()).stickers.some((s) => s.id === sticker.id), 'todos lo ven en el panel');
+
+  const say = (u, json) => call(u, '/messages', { json });
+  res = await say(ana, { sticker_id: sticker.id });
+  assert.equal(res.status, 201);
+  const { message } = await res.json();
+  assert.deepEqual(message.sticker, { id: sticker.id, filename: sticker.filename, width: 320, height: 200 });
+  assert.equal((await nextB((m) => m.type === 'message' && m.message.id === message.id)).message.sticker.id, sticker.id);
+  assert.equal((await say(ana, { sticker_id: sticker.id, body: 'y texto' })).status, 400, 'el sticker va solo');
+  // Responder a un sticker: la cita dice "Sticker".
+  const reply = (await (await say(beto, { body: 'jaja', reply_to: message.id })).json()).message;
+  assert.equal(reply.reply.body, 'Sticker');
+
+  assert.equal((await call(beto, `/stickers/${sticker.id}`, { method: 'DELETE' })).status, 403, 'no es de beto');
+  assert.equal((await call(ana, `/stickers/${sticker.id}`, { method: 'DELETE' })).status, 204);
+  assert.ok(!(await (await call(beto, '/stickers')).json()).stickers.some((s) => s.id === sticker.id), 'ya no está en el panel');
+  assert.equal((await say(beto, { sticker_id: sticker.id })).status, 400, 'no se puede mandar más');
+  const { messages } = await (await call(beto, '/messages')).json();
+  assert.equal(messages.find((m) => m.id === message.id).sticker.filename, sticker.filename, 'el mensaje viejo lo sigue mostrando');
+  assert.equal((await call(beto, `/media/${sticker.filename}`)).status, 200);
+
+  // Borrar el mensaje no borra la imagen del sticker; un admin puede sacar el de cualquiera.
+  const otro = (await (await upload(beto, png)).json()).sticker;
+  const m2 = (await (await say(beto, { sticker_id: otro.id })).json()).message;
+  assert.equal((await call(beto, `/messages/${m2.id}`, { method: 'DELETE' })).status, 204);
+  assert.equal((await call(ana, `/media/${otro.filename}`)).status, 200, 'la imagen sigue para los otros mensajes');
+  assert.equal((await call(admin, `/stickers/${otro.id}`, { method: 'DELETE' })).status, 204);
 });

@@ -10,6 +10,7 @@ import { live } from './live.js';
 const AUTH_TIMEOUT = 5000;
 const PING_EVERY = 30_000; // también evita que Apache corte el túnel por inactividad (Timeout de 60 s)
 const BURST = { max: 10, ms: 10_000 }; // máximo 10 reacciones cada 10 s por conexión
+const TYPING_EVERY = 2000;
 
 export function attachChat(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
@@ -43,6 +44,14 @@ export function attachChat(server) {
       send(ws, { type: 'ready', user: s.user });
       return presence();
     }
+    // "Está escribiendo…": le llega a los demás, como mucho una vez cada 2 s por conexión.
+    if (msg.type === 'typing') {
+      const now = Date.now();
+      if (now - (ws.typedAt ?? 0) < TYPING_EVERY) return;
+      ws.typedAt = now;
+      const { id, display_name } = ws.user;
+      return authed().filter((c) => c.user.id !== id).forEach((c) => send(c, { type: 'typing', user: { id, display_name } }));
+    }
     if (msg.type !== 'react') return;
     const now = Date.now();
     ws.sent = ws.sent.filter((t) => now - t < BURST.ms);
@@ -66,7 +75,7 @@ export function attachChat(server) {
   // Con el mismo tag, los mensajes seguidos se juntan en un aviso.
   async function publishChat(user, message) {
     broadcast({ type: 'message', message });
-    const what = message.poll ? `📊 ${snippet(message.body)}` : message.body ? snippet(message.body) : `📎 Mandó ${message.media?.kind === 'audio' ? 'un audio' : 'una foto'}`;
+    const what = message.poll ? `📊 ${snippet(message.body)}` : message.body ? snippet(message.body) : message.sticker ? 'Mandó un sticker' : `📎 Mandó ${message.media?.kind === 'audio' ? 'un audio' : 'una foto'}`;
     // A quien lo mencionan le llega "te mencionó" en lugar del aviso general del chat.
     const online = authed().map((c) => c.user.id);
     const skip = [...new Set([user.id, ...online])];

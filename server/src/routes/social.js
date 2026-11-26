@@ -6,6 +6,7 @@ import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { mentionedIds, notifyLater, snippet } from '../push.js';
 import { mediaKind, removeMedia, saveAttachment, uploadAttachment } from '../media.js';
+import { saveImage, upload, uploadLimit } from '../images.js';
 import { parsePoll } from '../polls.js';
 import { live } from '../live.js';
 
@@ -203,21 +204,26 @@ export async function chatPolls(ids) {
 // Mensajes del chat con su cita, reacciones, adjunto y encuesta (historial y mensajes nuevos).
 export async function loadMessages(where = '', params = [], limit = CHAT_PAGE) {
   const [rows] = await pool.execute(
-    `SELECT m.id, m.body, m.created_at, m.user_id, u.username, u.display_name, u.avatar,
+    `SELECT m.id, m.body, m.created_at, m.user_id, m.sticker_id, u.username, u.display_name, u.avatar,
             r.id AS r_id, r.body AS r_body, ru.username AS r_username, ru.display_name AS r_display_name,
-            md.filename, md.mime, md.width, md.height
+            r.sticker_id AS r_sticker, r.media_id AS r_media,
+            md.filename, md.mime, md.width, md.height,
+            sm.filename AS s_filename, sm.width AS s_width, sm.height AS s_height
        FROM messages m JOIN users u ON u.id = m.user_id
        LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
        LEFT JOIN media md ON md.id = m.media_id
+       LEFT JOIN stickers st ON st.id = m.sticker_id LEFT JOIN media sm ON sm.id = st.media_id
       ${where ? `WHERE ${where}` : ''}
       ORDER BY m.id DESC LIMIT ${limit}`,
     params,
   );
   const ids = rows.map((m) => m.id);
   const [reactions, polls] = await Promise.all([messageReactions(ids), chatPolls(ids)]);
-  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, filename, mime, width, height, ...m }) => ({
+  const messages = rows.reverse().map(({ r_id, r_body, r_username, r_display_name, r_sticker, r_media, filename, mime, width, height, s_filename, s_width, s_height, sticker_id, ...m }) => ({
     ...m,
-    reply: quote({ id: r_id, body: r_body, username: r_username, display_name: r_display_name }),
+    // Si responde a un sticker o a un adjunto sin texto, la cita dice qué era.
+    reply: quote({ id: r_id, body: r_body || (r_sticker ? 'Sticker' : r_media ? 'Adjunto' : ''), username: r_username, display_name: r_display_name }),
+    sticker: s_filename ? { id: sticker_id, filename: s_filename, width: s_width, height: s_height } : null,
     reactions: reactions[m.id],
     media: filename ? { filename, mime, kind: mediaKind(mime), width, height } : null,
     poll: polls[m.id] ?? null,
@@ -230,7 +236,7 @@ router.get('/messages', async (req, res) => {
   res.json(await loadMessages(before > 0 ? 'm.id < ?' : '', before > 0 ? [before] : []));
 });
 
-// Mensaje del chat: texto, foto/audio o encuesta (llega a todos por la conexión en vivo).
+// Mensaje del chat: texto, foto/audio, encuesta o sticker (llega a todos por la conexión en vivo).
 // Hasta 10 cada 10 s por persona, sin importar cuántas pestañas tenga abiertas.
 const chatLimit = rateLimit({ windowMs: 10_000, limit: 10, keyGenerator: (req) => String(req.user.id), message: { error: 'Más despacio 🙂' }, standardHeaders: 'draft-8', legacyHeaders: false });
 router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
@@ -239,7 +245,11 @@ router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
   if (body.length > 2000) return res.status(400).json({ error: 'El mensaje es muy largo (hasta 2000 caracteres).' });
   if (poll.error) return res.status(400).json({ error: 'La encuesta necesita de 2 a 6 opciones distintas.' });
   if (poll.options && !body) return res.status(400).json({ error: 'Escribí la pregunta de la encuesta.' });
-  if (!body && !req.file && !poll.options) return res.status(400).json({ error: 'El mensaje está vacío.' });
+  const stickerId = Number.parseInt(req.body?.sticker_id, 10);
+  if (stickerId > 0 && (body || req.file || poll.options)) return res.status(400).json({ error: 'El sticker va solo.' });
+  if (!body && !req.file && !poll.options && !(stickerId > 0)) return res.status(400).json({ error: 'El mensaje está vacío.' });
+  const [[sticker]] = stickerId > 0 ? await pool.execute('SELECT id FROM stickers WHERE id = ? AND deleted_at IS NULL', [stickerId]) : [[]];
+  if (stickerId > 0 && !sticker) return res.status(400).json({ error: 'Ese sticker ya no está.' });
   const replyId = Number.parseInt(req.body?.reply_to, 10);
   const [[replied]] = replyId > 0 ? await pool.execute('SELECT id FROM messages WHERE id = ?', [replyId]) : [[]];
   const attachment = req.file ? await saveAttachment(req.file, req.user.id) : null;
@@ -247,7 +257,7 @@ router.post('/messages', chatLimit, uploadAttachment, async (req, res) => {
 
   let id;
   try {
-    const [r] = await pool.execute('INSERT INTO messages (user_id, body, reply_to, media_id) VALUES (?, ?, ?, ?)', [req.user.id, body, replied?.id ?? null, attachment?.id ?? null]);
+    const [r] = await pool.execute('INSERT INTO messages (user_id, body, reply_to, media_id, sticker_id) VALUES (?, ?, ?, ?, ?)', [req.user.id, body, replied?.id ?? null, attachment?.id ?? null, sticker?.id ?? null]);
     id = r.insertId;
   } catch (err) {
     if (attachment) await removeMedia(attachment.id);
@@ -303,6 +313,36 @@ router.delete('/messages/:id', async (req, res) => {
     db.release();
   }
   live.broadcast({ type: 'deleted', message_id: id });
+  res.status(204).end();
+});
+
+// --- Stickers del grupo: los sube cualquiera y todos los pueden mandar ---
+const STICKER_SELECT = 'SELECT s.id, s.user_id, md.filename, md.width, md.height FROM stickers s JOIN media md ON md.id = s.media_id';
+
+router.get('/stickers', async (req, res) => {
+  const [stickers] = await pool.execute(`${STICKER_SELECT} WHERE s.deleted_at IS NULL ORDER BY s.id DESC`);
+  res.json({ stickers });
+});
+
+router.post('/stickers', uploadLimit, upload.single('image'), async (req, res) => {
+  const img = req.file && (await saveImage(req.file.buffer, req.user.id, { sticker: true }).catch(() => null));
+  if (!img) return res.status(400).json({ error: 'Imagen inválida (JPEG, PNG, WebP o GIF).' });
+  let id;
+  try {
+    [{ insertId: id }] = await pool.execute('INSERT INTO stickers (user_id, media_id) VALUES (?, ?)', [req.user.id, img.id]);
+  } catch (err) {
+    await removeMedia(img.id);
+    throw err;
+  }
+  res.status(201).json({ sticker: { id, user_id: req.user.id, filename: img.filename, width: img.width, height: img.height } });
+});
+
+// Sacarlo del panel (quien lo subió o un admin). Los mensajes que ya lo mandaron lo siguen mostrando.
+router.delete('/stickers/:id', async (req, res) => {
+  const [[s]] = await pool.execute('SELECT id, user_id FROM stickers WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!s) return res.status(404).json({ error: 'no existe' });
+  if (s.user_id !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'Solo quien lo subió puede sacarlo.' });
+  await pool.execute('UPDATE stickers SET deleted_at = NOW() WHERE id = ?', [s.id]);
   res.status(204).end();
 });
 

@@ -26,6 +26,8 @@ export const uploadLimit = rateLimit({ windowMs: 60 * 60_000, limit: 30, keyGene
 const POST_SIZE = { width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true };
 // Cuadrada, recortada hacia la zona con más detalle (en general, la cara).
 const AVATAR_SIZE = { width: 256, height: 256, fit: 'cover', position: sharp.strategy.attention };
+// Sticker: entra entero en 320x320 (sin recortar ni agrandar); el WebP conserva la transparencia.
+const STICKER_SIZE = { width: 320, height: 320, fit: 'inside', withoutEnlargement: true };
 // Portada del perfil: apaisada, recortada igual hacia lo más llamativo.
 const COVER_SIZE = { width: 1500, height: 500, fit: 'cover', position: sharp.strategy.attention };
 
@@ -50,15 +52,15 @@ export function parseCrop(raw) {
 
 // Revisa el formato real (no el que dice el cliente), endereza según EXIF y guarda WebP sin metadatos (se va el GPS).
 // Devuelve los datos de la imagen guardada o null si no es válida.
-export async function saveImage(buffer, userId, { avatar = false, cover = false, crop } = {}) {
+export async function saveImage(buffer, userId, { avatar = false, cover = false, sticker = false, crop } = {}) {
   const head = await sharp(buffer, { limitInputPixels: MAX_PIXELS }).metadata().catch(() => null);
   if (!head || !['jpeg', 'png', 'webp', 'gif'].includes(head.format)) return null;
   const pages = head.pages ?? 1;
   const animated = pages > 1;
   // shortcut: en posts el tope es solo de píxeles (un GIF largo de 40M px usa mucha RAM); si el servidor se queda corto, bajar MAX_PIXELS.
-  const frames = Math.max(1, Math.min(pages, avatar || cover ? MAX_FRAMES_PROFILE : pages, Math.floor(MAX_PIXELS / (head.width * (head.pageHeight ?? head.height)))));
+  const frames = Math.max(1, Math.min(pages, avatar || cover || sticker ? MAX_FRAMES_PROFILE : pages, Math.floor(MAX_PIXELS / (head.width * (head.pageHeight ?? head.height)))));
   // La detección de lo más llamativo ("attention") no anda con animaciones: ahí se recorta al centro.
-  const size = avatar ? AVATAR_SIZE : cover ? COVER_SIZE : POST_SIZE;
+  const size = avatar ? AVATAR_SIZE : cover ? COVER_SIZE : sticker ? STICKER_SIZE : POST_SIZE;
   const resize = !animated ? size : cover ? ANIM_COVER_SIZE : avatar ? { ...size, position: 'centre' } : size;
   // El orden importa: enderezar, después recortar el encuadre elegido, después achicar.
   const pipeline = sharp(buffer, { pages: animated ? frames : 1, limitInputPixels: MAX_PIXELS }).rotate();
